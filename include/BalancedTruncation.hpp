@@ -45,6 +45,7 @@
 namespace ACE{
 
 struct BalancedTruncationDiagnostics{
+  int cut;                   //bond index n (set by sweeps; -1 otherwise)
   int D;                     //bond dimension before
   int m;                     //bond dimension after
   int r;                     //rank of the core part
@@ -63,7 +64,11 @@ struct BalancedTruncationDiagnostics{
   bool no_truncation;        //m >= D: inserting Pi would not reduce the bond
 
   void print(std::ostream &os=std::cout)const;
-  BalancedTruncationDiagnostics() : D(0), m(0), r(0), protect(false), s(1.),
+  //CSV columns matching print_csv
+  static void print_csv_header(std::ostream &os);
+  void print_csv(std::ostream &os)const;
+
+  BalancedTruncationDiagnostics() : cut(-1), D(0), m(0), r(0), protect(false), s(1.),
      sigma_sq_total(0), tail(0), local_error(0), amplification(0), YX_error(0),
      Pi_norm(0), Pi0_norm(0), unprotected_bound(0), E_aug(-1), rank_limited_by_rtol(false),
      no_truncation(false){}

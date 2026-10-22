@@ -1,0 +1,8 @@
+# Held-out context E: detuned drive with pure dephasing, excited state, sigma_y.
+ta 0
+dt 1e-1
+te 3
+initial          {|1><1|_2}
+add_Hamiltonian  {0.9*|1><1|_2 + 0.6*(|0><1|_2+|1><0|_2)}
+add_Lindblad     0.2  {|1><1|_2}
+add_Output       {-i*|0><1|_2+i*|1><0|_2}

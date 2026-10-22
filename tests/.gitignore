@@ -2,3 +2,4 @@ bin/
 data/*.pt*
 data/*.out
 data/_tmp_*
+data/*.csv

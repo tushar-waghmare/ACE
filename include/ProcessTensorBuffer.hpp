@@ -17,6 +17,10 @@
 #include <future>
 
 namespace ACE{
+
+class BalancedContexts;
+struct BalancedSweepOptions;
+struct BalancedTruncationDiagnostics;
 /**
 Buffers blocks of PT elements.
 
@@ -148,6 +152,10 @@ public:
 
   double sweep_backward(const TruncatedSVD &trunc, int verbosity,
                      int range_start=0, int range_end=-1);
+
+  //protected operational balanced truncation (final sweep); see BalancedSweep.hpp
+  std::vector<BalancedTruncationDiagnostics> sweep_forward_balanced(
+                     BalancedContexts &contexts, const BalancedSweepOptions &opt);
 
   void sweep_pair_forward(const TruncatedSVD &trunc, int verbosity);
   void sweep_pair_backward(const TruncatedSVD &trunc, int verbosity);

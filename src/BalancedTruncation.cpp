@@ -8,6 +8,7 @@ constexpr double BalancedTruncation::rtol_default;
 constexpr double BalancedTruncation::s_tol_default;
 
 void BalancedTruncationDiagnostics::print(std::ostream &os)const{
+  if(cut>=0){ os<<"cut "<<cut<<": "; }
   os<<"D="<<D<<" -> m="<<m<<" (r="<<r<<(protect?"+1 protected":"")<<")"
     <<" local_error="<<local_error
     <<" ||X||*||Y||="<<amplification
@@ -17,6 +18,16 @@ void BalancedTruncationDiagnostics::print(std::ostream &os)const{
   if(protect){ os<<" |s-1|="<<std::abs(s-1.)<<" ||Pi0||="<<Pi0_norm; }
   if(no_truncation){ os<<" (no truncation: m>=D)"; }
   if(rank_limited_by_rtol){ os<<" (rank limited by numerically zero singular values)"; }
+}
+
+void BalancedTruncationDiagnostics::print_csv_header(std::ostream &os){
+  os<<"cut,D,m,r,protect,local_error,tail,E_aug,unprotected_bound,Pi_norm,Pi0_norm,amplification,YX_error,abs_s_minus_1,no_truncation,rank_limited_by_rtol"<<std::endl;
+}
+
+void BalancedTruncationDiagnostics::print_csv(std::ostream &os)const{
+  os<<cut<<","<<D<<","<<m<<","<<r<<","<<(protect?1:0)<<","<<local_error<<","<<tail<<","<<E_aug
+    <<","<<unprotected_bound<<","<<Pi_norm<<","<<Pi0_norm<<","<<amplification<<","<<YX_error
+    <<","<<std::abs(s-1.)<<","<<(no_truncation?1:0)<<","<<(rank_limited_by_rtol?1:0)<<std::endl;
 }
 
 double BalancedTruncation::norm2(const Eigen::MatrixXcd &M){

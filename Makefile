@@ -84,7 +84,7 @@ TOOLS = integrate_outfile differentiate_outfile FT_outfile smoothen_outfile
 TOOLS += PTB_sweep_forward PTB_sweep_backward PTB_apply_system_propagator
 TOOLS += PTB_analyze PTB_join PTR_to_PTB PTB_strip_env_ops PTB_extend
 TOOLS += PTB_transfer_env_ops PTB_expand_in_place PTB_coarse_grain 
-TOOLS += PTB_outer_contract
+TOOLS += PTB_outer_contract PTB_balanced_truncate
 TOOLS += PTR_sweep_backward PTR_analyze
 TOOLS += PME_renorm BCF_from_J
 TOOLS += readexpression print_densmat timedep_eigenstates
@@ -114,7 +114,9 @@ $(EXPERIMENTAL): %: src_exec/experimental/%.cpp lib/$(LIBNAME)
 TESTSRC = $(wildcard tests/*.cpp)
 TESTBIN = $(patsubst tests/%.cpp, tests/bin/%, $(TESTSRC))
 
-tests: $(TESTBIN) tests/data/small.pt
+TESTPT = tests/data/small.pt tests/data/exact.pt
+
+tests: $(TESTBIN) $(TESTPT) PTB_balanced_truncate
 	@failed=0; for t in $(TESTBIN); do echo "=== $$t"; ./$$t || failed=1; done; \
 	if [ $$failed -ne 0 ]; then echo "SOME TESTS FAILED"; exit 1; else echo "ALL TESTS PASSED"; fi
 
@@ -122,8 +124,8 @@ $(TESTBIN): tests/bin/%: tests/%.cpp tests/test_tools.hpp lib/$(LIBNAME)
 	@mkdir -p tests/bin
 	$(CXX) -o $@ $< $(OPTSLINK) -Itests -Llib -lACE -Wl,-rpath,$(LIBSTRING)
 
-tests/data/small.pt: tests/data/small_PT.param bin/ACE
-	cd tests/data && ../../bin/ACE small_PT.param > small_PT.out
+$(TESTPT): tests/data/%.pt: tests/data/%_PT.param bin/ACE
+	cd tests/data && ../../bin/ACE $*_PT.param > $*_PT.out
 
 
 .PHONY: clean tests

@@ -1,0 +1,8 @@
+# Held-out context D: 2pi pulse, superposition state with phase, occupation.
+ta 0
+dt 1e-1
+te 3
+initial          {0.5*(|0><0|_2+i*|0><1|_2-i*|1><0|_2+|1><1|_2)}
+add_Hamiltonian  {-1.0*|1><1|_2}
+add_Pulse Gauss  1.0 0.4 {2*pi} 0.5   {hbar/2*|1><0|_2}
+add_Output       {|1><1|_2}
