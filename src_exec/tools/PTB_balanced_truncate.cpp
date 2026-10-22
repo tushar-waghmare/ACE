@@ -21,6 +21,8 @@
     balanced_eta         gauge-invariant HS blend weight in [0,1] (default 0.3;
                          0: operational, 1: HS, always closure-protected)
     balanced_rtol        numerical-rank floor (default 1e-13)
+    balanced_readout_stride  future readouts every n steps + final time (default 5;
+                         0: final time only)
     balanced_log         CSV file with per-cut diagnostics
     buffer_blocksize     block size of the output PT (default: single file)
     verbosity            0, 1 (default), 2 (one line per cut)

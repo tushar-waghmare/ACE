@@ -120,15 +120,18 @@ public:
 
   //Error on the training pairs (past a, future b), for factors with NL rows/columns
   //per context as assembled by BalancedFactors:
-  //  E_aug = sum_{a,b} w_a v_b |sum(chi_b .* state_a (I-Pi)^T)|^2 
+  //  E_aug = sum_{a,b} w_a v_b |sum(chi_b .* state_a (I-Pi)^T)|^2
   //        = sum_{a,b} |tr block_{b,a}( F (I - X Y) A )|^2
   static double augmented_error(const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F,
                                 const Eigen::MatrixXcd &X, const Eigen::MatrixXcd &Y, int NL);
 
-  //fills P.diag.E_aug and P.diag.unprotected_bound from the (operational)
-  //training factors A, F (relevant when P was built from blended factors)
-  static void set_training_diagnostics(BalancedProjector &P, 
-                                const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F, int NL);
+  //fills P.diag.E_aug from the (operational) training-pair factors A, F_pairs
+  //(block structure NL), and P.diag.unprotected_bound from A and the operational
+  //objective factor F_objective (default: F_pairs). Relevant when P was built
+  //from blended or compressed factors.
+  static void set_training_diagnostics(BalancedProjector &P,
+                                const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F_pairs, int NL,
+                                const Eigen::MatrixXcd *F_objective=nullptr);
 
   //largest singular value
   static double norm2(const Eigen::MatrixXcd &M);
@@ -139,7 +142,7 @@ private:
       const Eigen::MatrixXcd &Ap, const Eigen::MatrixXcd &Fp,
       const TruncatedSVD &trunc, int n_protected, double rtol, double noise_scale,
       Eigen::MatrixXcd &Xr, Eigen::MatrixXcd &Yr);
-  static void finish_diagnostics(BalancedProjector &ret, 
+  static void finish_diagnostics(BalancedProjector &ret,
                                  const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F);
 };
 

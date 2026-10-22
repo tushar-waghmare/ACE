@@ -12,10 +12,11 @@ void BalancedSweepOptions::setup(Parameters &param){
                      param.get_as_int("balanced_mink", 0));
   eta=param.get_as_double("balanced_eta", 0.3);
   rtol=param.get_as_double("balanced_rtol", BalancedTruncation::rtol_default);
+  readout_stride=param.get_as_int("balanced_readout_stride", 5);
   verbosity=param.get_as_int("verbosity", 1);
   log_file=param.get_as_string("balanced_log", "");
-  if(trunc.threshold<0. || trunc.maxk<0 || trunc.mink<0 || !(rtol>=0.)){
-    std::cerr<<"BalancedSweepOptions: balanced_threshold, balanced_maxk, balanced_mink, balanced_rtol must be non-negative!"<<std::endl;
+  if(trunc.threshold<0. || trunc.maxk<0 || trunc.mink<0 || !(rtol>=0.) || readout_stride<0){
+    std::cerr<<"BalancedSweepOptions: balanced_threshold, balanced_maxk, balanced_mink, balanced_rtol, balanced_readout_stride must be non-negative!"<<std::endl;
     throw DummyException();
   }
   if(trunc.threshold<=0. && trunc.maxk<=0){
@@ -30,7 +31,8 @@ void BalancedSweepOptions::setup(Parameters &param){
 
 void BalancedSweepOptions::print_info(std::ostream &os)const{
   os<<"Balanced sweep: threshold="<<trunc.threshold<<" (core values) maxk="<<trunc.maxk
-    <<" mink="<<trunc.mink<<" (total bond dimension) eta="<<eta<<" rtol="<<rtol;
+    <<" mink="<<trunc.mink<<" (total bond dimension) eta="<<eta<<" rtol="<<rtol
+    <<" readout_stride="<<readout_stride;
   if(log_file!="")os<<" log='"<<log_file<<"'";
   os<<std::endl;
 }
@@ -88,7 +90,7 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
 
   //1. future factors on the untruncated PT
   BalancedFactors factors;
-  factors.compute_future_factors(PTB, contexts, opt.verbosity);
+  factors.compute_future_factors(PTB, contexts, opt.verbosity, opt.readout_stride);
   //HS Gramians for the blend: future on the untruncated PT, past through the truncated one
   bool use_blend=(opt.eta>0.);
   BalancedGramians gramians;
@@ -146,8 +148,9 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
       }else{
         P=BalancedTruncation::protected_projector(A, F, e.closure, rhat, opt.trunc, opt.rtol);
       }
-      //E_aug and the unprotected bound always refer to the operational factors
-      BalancedTruncation::set_training_diagnostics(P, A, F, NL);
+      //E_aug (final-time training pairs) and the unprotected bound always refer
+      //to the operational factors
+      BalancedTruncation::set_training_diagnostics(P, A, factors.get_F_pairs(n), NL, &F);
     }
     P.diag.cut=n;
     if(P.diag.D>maxdim_in)maxdim_in=P.diag.D;

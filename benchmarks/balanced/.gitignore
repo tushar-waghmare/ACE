@@ -1,3 +1,5 @@
 smoke.pt*
 *.out
 _tmp_*
+bench*.pt*
+*.log

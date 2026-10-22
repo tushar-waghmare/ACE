@@ -60,9 +60,11 @@ double BalancedTruncation::augmented_error(const Eigen::MatrixXcd &A, const Eige
   return E;
 }
 
-void BalancedTruncation::set_training_diagnostics(BalancedProjector &P, 
-                              const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F, int NL){
-  P.diag.E_aug=augmented_error(A, F, P.X, P.Y, NL);
+void BalancedTruncation::set_training_diagnostics(BalancedProjector &P,
+                              const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F_pairs, int NL,
+                              const Eigen::MatrixXcd *F_objective){
+  P.diag.E_aug=augmented_error(A, F_pairs, P.X, P.Y, NL);
+  const Eigen::MatrixXcd &F = F_objective ? *F_objective : F_pairs;
   Eigen::JacobiSVD<Eigen::MatrixXcd> svd(F*A);
   const Eigen::VectorXd &sv=svd.singularValues();
   P.diag.unprotected_bound=0.;

@@ -23,14 +23,27 @@
   Factors (paper convention p_mu = state.row(mu)^T, f_mu = chi.row(mu)^T):
     A_n = [ sqrt(w_a) state_a^T ]_a          (D x n_p*NL, columns)
     F_n = [ sqrt(v_b) chi_b     ]_b          (n_f*NL x D, rows)
+
+  Readout times (readout_stride s > 0): each future context b is read out at
+  the cuts k in R = {n_tot-1, n_tot-1-s, n_tot-1-2s, ...} (tester o_b (x) q_k^T
+  at cut k), with weight v_b/|R| per readout; F_n stacks all testers with k >= n.
+  Since the projector depends only on F_n^dagger F_n, F_n is then QR-compressed
+  to at most D rows. s = 0: final time only, F_n uncompressed (as above).
+  F_pairs_n always holds the final-time testers [ sqrt(v_b) chi_b ]_b with their
+  per-context block structure (for E_aug on the training pairs).
 */
 
 namespace ACE{
 
 class BalancedFactors{
 public:
-  //future factors F_n for all cuts n=0..n_tot-1 (computed on the untruncated PT)
+  //future factors F_n of the objective for all cuts n=0..n_tot-1
+  //(computed on the untruncated PT)
   std::vector<Eigen::MatrixXcd> F;
+  //final-time testers with block structure (only stored if readout_stride>0;
+  //otherwise identical to F)
+  std::vector<Eigen::MatrixXcd> F_pairs;
+  int readout_stride;
 
   //augmented initial state vec(rho0), NL x e_0.M.dim_d1 (must be 1)
   static Eigen::MatrixXcd initial_state(const BalancedContext &ctx, const ProcessTensorElement &e0);
@@ -62,11 +75,20 @@ public:
   static std::vector<Eigen::MatrixXcd> initial_states(ProcessTensorBuffer &PTB,
                                                       const BalancedContexts &contexts);
 
-  //backward pass: testers of all future contexts at all cuts -> F
+  //backward pass: testers of all future contexts at all cuts -> F, F_pairs
   //(tabulates the system steps of 'future' if necessary)
-  void compute_future_factors(ProcessTensorBuffer &PTB, BalancedContexts &future, int verbosity=0);
+  void compute_future_factors(ProcessTensorBuffer &PTB, BalancedContexts &future,
+                              int verbosity=0, int readout_stride=0);
 
   inline const Eigen::MatrixXcd & get_F(int n)const{ return F.at(n); }
+  inline const Eigen::MatrixXcd & get_F_pairs(int n)const{
+    return (readout_stride>0) ? F_pairs.at(n) : F.at(n);
+  }
+
+  //readout cuts for a given stride (descending, starting at n_tot-1)
+  static std::vector<int> readout_cuts(int n_tot, int readout_stride);
+
+  BalancedFactors() : readout_stride(0){}
 };
 
 }//namespace

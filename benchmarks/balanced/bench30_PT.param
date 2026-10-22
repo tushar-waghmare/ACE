@@ -1,0 +1,23 @@
+# Benchmark (a) reference PT: QD phonons, 30 modes, te=20 (as examples/NatPhys2022/02_phonons/03).
+# Build: ../../bin/ACE bench30_PT.param   (100 modes: several hours on one core; use HPC/MKL)
+ta                    0
+dt                    1e-1
+te                    20
+Nintermediate        20
+
+threshold             5e-8
+dict_zero             1e-12
+
+add_Hamiltonian            {-1.5*|1><1|_2}
+add_Output                 {|1><1|_2}
+
+Boson_N_modes                    30
+Boson_subtract_polaron_shift     false
+Boson_M                          3
+Boson_E_max                      5
+Boson_J_type                     QDPhonon
+Boson_sort                       none
+temperature                      4
+
+write_PT    bench30.pt
+outfile     bench30_PT.out

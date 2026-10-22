@@ -129,7 +129,25 @@ std::vector<Eigen::MatrixXcd> BalancedFactors::initial_states(ProcessTensorBuffe
   return states;
 }
 
-void BalancedFactors::compute_future_factors(ProcessTensorBuffer &PTB, BalancedContexts &future, int verbosity){
+std::vector<int> BalancedFactors::readout_cuts(int n_tot, int readout_stride){
+  std::vector<int> cuts;
+  if(readout_stride<=0){
+    cuts.push_back(n_tot-1);
+  }else{
+    for(int k=n_tot-1; k>=0; k-=readout_stride)cuts.push_back(k);
+  }
+  return cuts;
+}
+
+//B (k x D) -> C (min(k,D) x D) with C^dagger C = B^dagger B
+static Eigen::MatrixXcd compress_rows(const Eigen::MatrixXcd &B){
+  if(B.rows()<=B.cols())return B;
+  Eigen::HouseholderQR<Eigen::MatrixXcd> qr(B);
+  return qr.matrixQR().topRows(B.cols()).triangularView<Eigen::Upper>();
+}
+
+void BalancedFactors::compute_future_factors(ProcessTensorBuffer &PTB, BalancedContexts &future, 
+                                             int verbosity, int readout_stride_){
   check_PT(PTB, future);
   int n_tot=PTB.get_n_tot();
   for(size_t b=0; b<future.size(); b++){
@@ -138,33 +156,70 @@ void BalancedFactors::compute_future_factors(ProcessTensorBuffer &PTB, BalancedC
       break;
     }
   }
+  readout_stride=std::max(readout_stride_, 0);
   std::vector<double> v=future.normalized_weights();
+  std::vector<int> cuts=readout_cuts(n_tot, readout_stride);
+  size_t next_cut=0;   //cuts are descending
 
   F.clear();
   F.resize(n_tot);
-  std::vector<Eigen::MatrixXcd> chi(future.size());
-  {
-    const ProcessTensorElement &e=PTB.get(n_tot-1, BackwardPreload);
-    for(size_t b=0; b<future.size(); b++){
-      chi[b]=final_tester(future[b], e);
-    }
-  }
-  F[n_tot-1]=future_factor(chi, v);
+  F_pairs.clear();
+  if(readout_stride>0)F_pairs.resize(n_tot);
 
-  //tester at cut n-1 = d1 bond of element n
-  for(int n=n_tot-1; n>0; n--){
-    const ProcessTensorElement &e=PTB.get(n, BackwardPreload);
-    for(size_t b=0; b<future.size(); b++){
-      step_backward(chi[b], e, future[b], n);
+  std::vector<Eigen::MatrixXcd> chi(future.size());           //final-time testers
+  std::vector<std::vector<Eigen::MatrixXcd> > active(future.size()); //readout testers
+  size_t rows_max=0;
+  for(int n=n_tot-1; n>=0; n--){
+    //tester at cut n from cut n+1: adjoint step through element n+1
+    if(n<n_tot-1){
+      const ProcessTensorElement &e1=PTB.get(n+1, BackwardPreload);
+      for(size_t b=0; b<future.size(); b++){
+        step_backward(chi[b], e1, future[b], n+1);
+        if(readout_stride>0){
+          for(Eigen::MatrixXcd &c : active[b]){ step_backward(c, e1, future[b], n+1); }
+        }
+      }
     }
-    F[n-1]=future_factor(chi, v);
+    const ProcessTensorElement &e=PTB.get(n, BackwardPreload);
+    if(n==n_tot-1){
+      for(size_t b=0; b<future.size(); b++){ chi[b]=final_tester(future[b], e); }
+    }
+    if(readout_stride>0 && next_cut<cuts.size() && cuts[next_cut]==n){
+      if(e.closure.size()!=e.M.dim_d2){
+        std::cerr<<"BalancedFactors::compute_future_factors: element "<<n<<" has no closure!"<<std::endl;
+        throw DummyException();
+      }
+      for(size_t b=0; b<future.size(); b++){
+        active[b].push_back(future[b].observable_vector()*e.closure.transpose());
+      }
+      next_cut++;
+    }
+
+    F[n]=future_factor(chi, v);
+    if(readout_stride>0){
+      F_pairs[n]=F[n];
+      std::vector<Eigen::MatrixXcd> all;
+      std::vector<double> wt;
+      for(size_t b=0; b<future.size(); b++){
+        for(const Eigen::MatrixXcd &c : active[b]){
+          all.push_back(c);
+          wt.push_back(v[b]/((double)cuts.size()));
+        }
+      }
+      Eigen::MatrixXcd Fn=future_factor(all, wt);
+      rows_max=std::max(rows_max, (size_t)Fn.rows());
+      F[n]=compress_rows(Fn);
+    }
   }
 
   if(verbosity>0){
     size_t mem=0;
     for(const Eigen::MatrixXcd &f : F){ mem+=f.size(); }
+    for(const Eigen::MatrixXcd &f : F_pairs){ mem+=f.size(); }
     std::cout<<"BalancedFactors: future factors for "<<n_tot<<" cuts, "<<future.size()
-             <<" context(s), "<<mem*sizeof(std::complex<double>)/1024./1024.<<" MB"<<std::endl;
+             <<" context(s), "<<cuts.size()<<" readout time(s) (stride "<<readout_stride<<")";
+    if(readout_stride>0)std::cout<<", up to "<<rows_max<<" tester rows per cut (compressed)";
+    std::cout<<", "<<mem*sizeof(std::complex<double>)/1024./1024.<<" MB"<<std::endl;
   }
 }
 

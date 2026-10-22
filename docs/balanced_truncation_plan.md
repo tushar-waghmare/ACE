@@ -272,3 +272,11 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   `||X|| ||Y||` to 1e5-1e7 on the test PT; the square-root version is gauge invariant to
   ~1e-13. When blending, `local_error`/`tail`/`amplification` refer to the blended
   objective, `E_aug` and the unprotected bound to the operational one.
+- **Readout times (2026-10-22):** future contexts are read out at subsampled times,
+  `balanced_readout_stride s` (default 5; 0 = final time only), cuts
+  `{n_tot-1, n_tot-1-s, ...}`, weight `v_b/|R|` per readout. Motivation: with final-time
+  testers only, eta=0 collapsed a pure-dephasing PT to m=2 (final readout exact, intermediate
+  coherence wrong by ~3e-2). F_n is QR-compressed to <= D rows (Pi depends on F^+F only);
+  E_aug is evaluated on the final-time training pairs (block structure kept separately).
+- **Benchmarks:** train on a diverse ensemble (mixed initial states/observables); PT inputs
+  for 30 modes (local) and 100 modes (HPC), same driver.

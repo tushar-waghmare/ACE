@@ -35,16 +35,17 @@ struct BalancedSweepOptions{
   double eta;           //gauge-invariant HS blend weight (0: purely operational,
                         //1: pure HS, protected); tool/parameter default 0.3
   double rtol;          //numerical-rank floor of the core
+  int readout_stride;   //future readouts every readout_stride steps (0: final time only)
   int verbosity;        //0: silent, 1: summary, 2: one line per cut
   std::string log_file; //CSV file with per-cut diagnostics ("" = none)
 
   //reads balanced_threshold, balanced_maxk, balanced_mink, balanced_eta,
-  //balanced_rtol, balanced_log, verbosity
+  //balanced_rtol, balanced_readout_stride, balanced_log, verbosity
   void setup(Parameters &param);
   void print_info(std::ostream &os=std::cout)const;
 
   BalancedSweepOptions() : trunc(0., 0), eta(0.3),
-     rtol(BalancedTruncation::rtol_default), verbosity(1){}
+     rtol(BalancedTruncation::rtol_default), readout_stride(5), verbosity(1){}
   BalancedSweepOptions(Parameters &param) : BalancedSweepOptions(){ setup(param); }
 };
 
