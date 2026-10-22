@@ -1,0 +1,8 @@
+# Test context C: excited state, radiative decay (Lindblad), sigma_x.
+ta 0
+dt 1e-1
+te 3
+initial          {|1><1|_2}
+add_Hamiltonian  {-0.5*|1><1|_2 + 0.2*(|0><1|_2+|1><0|_2)}
+add_Lindblad     0.3  {|0><1|_2}
+add_Output       {|0><1|_2+|1><0|_2}

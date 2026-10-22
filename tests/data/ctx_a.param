@@ -1,0 +1,8 @@
+# Test context A: Gaussian pi pulse, ground state, occupation.
+ta 0
+dt 1e-1
+te 3
+initial          {|0><0|_2}
+add_Hamiltonian  {-1.5*|1><1|_2}
+add_Pulse Gauss  1.5 0.5 {1*pi} 0   {hbar/2*|1><0|_2}
+add_Output       {|1><1|_2}
