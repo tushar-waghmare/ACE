@@ -31,6 +31,9 @@ ifeq ($(shell uname -o),Msys)
   OPTS += -DM_PI=3.14159265358979323846
   LIBNAME=libACE.dll
 endif
+ifeq ($(shell uname -s),Darwin)
+  LIBLINKOPTS += -Wl,-install_name,@rpath/$(LIBNAME)
+endif
 
 OPTS += -O$(OPTIM) -fno-math-errno -g -m64 --std=c++14
 ifneq ($(CXX),icpc)
@@ -66,7 +69,7 @@ pybind/ACE/_ACE$(PYBINDSUF): pybind/pybind.cpp lib/$(LIBNAME)
 
 lib: lib/$(LIBNAME)
 lib/$(LIBNAME): $(LIBOBJS)
-	$(CXX) -shared -fPIC -o lib/$(LIBNAME) -flto lib/*.o 
+	$(CXX) -shared -fPIC -o lib/$(LIBNAME) -flto lib/*.o $(LIBLINKOPTS)
 
 $(LIBOBJS): lib/%.o: src/%.cpp include/%.hpp include/PCH.hpp.gch
 	$(CXX) -o $@ -c $< -fPIC -include include/PCH.hpp $(OPTS) 
@@ -107,9 +110,24 @@ experimental: $(EXPERIMENTAL)
 $(EXPERIMENTAL): %: src_exec/experimental/%.cpp lib/$(LIBNAME)
 	$(CXX) -o tools/$@ $< $(OPTSLINK) -Llib -lACE -Wl,-rpath,$(LIBSTRING)
 
+# C++ tests: tests/*.cpp -> tests/bin/*, run from the repository root
+TESTSRC = $(wildcard tests/*.cpp)
+TESTBIN = $(patsubst tests/%.cpp, tests/bin/%, $(TESTSRC))
 
-.PHONY: clean
+tests: $(TESTBIN) tests/data/small.pt
+	@failed=0; for t in $(TESTBIN); do echo "=== $$t"; ./$$t || failed=1; done; \
+	if [ $$failed -ne 0 ]; then echo "SOME TESTS FAILED"; exit 1; else echo "ALL TESTS PASSED"; fi
+
+$(TESTBIN): tests/bin/%: tests/%.cpp tests/test_tools.hpp lib/$(LIBNAME)
+	@mkdir -p tests/bin
+	$(CXX) -o $@ $< $(OPTSLINK) -Itests -Llib -lACE -Wl,-rpath,$(LIBSTRING)
+
+tests/data/small.pt: tests/data/small_PT.param bin/ACE
+	cd tests/data && ../../bin/ACE small_PT.param > small_PT.out
+
+
+.PHONY: clean tests
 
 clean:
-	rm -rf bin/* tools/* lib/* include/PCH.hpp.gch pybind/ACE/*.so pybind/build pybind/ACE.egg-info pybind/__pycache__ pybind/*whl
+	find tools -maxdepth 1 -type f ! -name '.*' -delete; rm -rf bin/* lib/* include/PCH.hpp.gch pybind/ACE/*.so pybind/build pybind/ACE.egg-info pybind/__pycache__ pybind/*whl tests/bin
 

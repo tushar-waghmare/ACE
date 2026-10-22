@@ -1,0 +1,12 @@
+# Smoke test (Phase 0): reuse smoke.pt written by smoke_PT.param; must reproduce smoke_PT.out.
+ta                    0
+dt                    1e-1
+te                    5
+Nintermediate        20
+
+add_Hamiltonian            {-1.5*|1><1|_2}
+add_Pulse Gauss  2.5 1 {1*pi} 0   {hbar/2*|1><0|_2}
+add_Output                 {|1><1|_2}
+
+add_PT      smoke.pt
+outfile     smoke_reuse.out

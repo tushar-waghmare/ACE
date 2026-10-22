@@ -1,0 +1,4 @@
+bin/
+data/*.pt*
+data/*.out
+data/_tmp_*

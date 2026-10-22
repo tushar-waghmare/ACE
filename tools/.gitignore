@@ -2,3 +2,6 @@
 *
 # Except this file
 !.gitignore
+# Except the Python reference for balanced truncation
+!balanced_ref/
+!balanced_ref/**
