@@ -1,5 +1,6 @@
 #include "test_tools.hpp"
 #include "BalancedFactors.hpp"
+#include "BalancedTruncation.hpp"
 #include "GenericSimulation.hpp"
 #include "ProcessTensorForwardList.hpp"
 #include "DummyException.hpp"
@@ -98,6 +99,55 @@ int main(){
     }
   }
   check(worst_tr<1e-4, "tr rho_S(t_n) ~ 1 on the input PT (SVD-truncated, not exact), dev "+sci(worst_tr));
+
+  //reference past for 'balanced_rhat reference'
+  check(contexts.rhat_mode=="tw" && !contexts.use_reference_rhat(), "balanced_rhat defaults to tw");
+  {
+    Parameters p2=param;
+    p2.add_to("balanced_rhat", "reference");
+    BalancedContexts c2(p2);
+    check(c2.size()==contexts.size(), "reference past is not a training context");
+    check(c2.rhat_context.no_intervention && !c2.rhat_context.has_observable, "default reference past: no intervention");
+    c2.tabulate_steps(n_tot);
+    const BalancedContext &rc=c2.rhat_context;
+    int N=rc.get_N();
+    check((rc.initial_rho-Eigen::MatrixXcd::Identity(N,N)/(double)N).norm()<1e-15
+          && (rc.S_first[3]-Eigen::MatrixXcd::Identity(N*N,N*N)).norm()==0.
+          && (rc.S_second[n_tot-1]-Eigen::MatrixXcd::Identity(N*N,N*N)).norm()==0., "no-intervention: rho0 = 1/N, S = 1");
+    Eigen::MatrixXcd st=BalancedFactors::initial_state(rc, PTB.get(0));
+    double worst_s=0;
+    for(int n=0; n<n_tot; n++){
+      BalancedFactors::step_forward(st, PTB.get(n), rc, n);
+      Eigen::VectorXcd r=BalancedTruncation::trace_weighted_rhat({st}, {1.});
+      std::complex<double> s=PTB.get(n).closure.transpose()*r;
+      worst_s=std::max(worst_s, std::abs(s-1.));
+    }
+    check(worst_s<1e-4, "no-intervention rhat: q^T rhat ~ 1 at all cuts (inexact input closure), dev "+sci(worst_s));
+  }
+  {
+    Parameters p3=param;
+    p3.add_to("balanced_rhat", "reference");
+    p3.add_to("balanced_rhat_context", "tests/data/rhat_ctx.param");
+    BalancedContexts c3(p3);
+    check(!c3.rhat_context.no_intervention && !c3.rhat_context.has_observable
+          && c3.rhat_context.label=="tests/data/rhat_ctx.param", "balanced_rhat_context read (no observable needed)");
+    c3.tabulate_steps(n_tot);
+    bool threw=false;
+    std::streambuf *old=std::cerr.rdbuf(nullptr);
+    try{ BalancedFactors::final_tester(c3.rhat_context, PTB.get(n_tot-1)); }catch(DummyException &){ threw=true; }
+    std::cerr.rdbuf(old); std::cerr.clear();
+    check(threw, "reference past cannot be used as a future");
+  }
+  {
+    int n_threw=0;
+    std::streambuf *old=std::cerr.rdbuf(nullptr);
+    Parameters p4=param; p4.add_to("balanced_rhat", "mean");
+    try{ BalancedContexts c4(p4); }catch(DummyException &){ n_threw++; }
+    Parameters p5=param; p5.add_to("balanced_rhat_context", "tests/data/rhat_ctx.param");
+    try{ BalancedContexts c5(p5); }catch(DummyException &){ n_threw++; }
+    std::cerr.rdbuf(old); std::cerr.clear();
+    check(n_threw==2, "invalid balanced_rhat / rhat_context without 'reference' throw");
+  }
 
  }catch(DummyException &e){
   check(false, "unexpected DummyException");

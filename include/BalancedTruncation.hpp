@@ -25,10 +25,16 @@
   Unprotected projector: same without deflation, X = A V_r Sigma_r^{-1/2},
   Y = Sigma_r^{-1/2} U_r^dagger F, m = r.
 
-  r follows the usual ACE rules (TruncatedSVD::get_truncated_dim: relative
-  'threshold', 'maxk', 'mink') applied to the core singular values;
-  additionally, numerically vanishing singular values (< rtol*sigma_0) are
-  never kept. Note: maxk limits r, i.e. the protected bond has m <= maxk+1.
+  Rank rules: 'maxk' and 'mink' of the TruncatedSVD refer to the total new
+  bond dimension m, as in ACE's SVD sweeps (mink <= m <= maxk); the relative
+  'threshold' acts on the core singular values sigma_i/sigma_1 (so it is not
+  comparable to an SVD threshold; compare at equal bond dimension via maxk).
+  Numerically vanishing core values are never kept: sigma_i <= rtol*max(sigma_1,
+  ||F||_2 ||A||_2), with the undeflated factors setting the absolute noise floor
+  of forming K (a floor relative to sigma_1 alone fails if the whole core is noise);
+  and r=0 is allowed (protected: Pi = Pi_0 = rhat q^T/s, m=1); this also
+  covers maxk=1. If m >= D, nothing is truncated (diag.no_truncation) and
+  callers should not insert the projector.
 
   Pairings are bilinear; only the SVD/norms involve adjoints.
   To apply Pi on bond n in ACE: M_n.inner_multiply_right(Y^T),
@@ -54,11 +60,13 @@ struct BalancedTruncationDiagnostics{
   double unprotected_bound;  //sum_{i>m} sigma_i(F A)^2 (optimal unprotected error at rank m)
   double E_aug;              //error on the training pairs, see augmented_error; <0: not computed
   bool rank_limited_by_rtol; //r was reduced because of numerically zero sigma
+  bool no_truncation;        //m >= D: inserting Pi would not reduce the bond
 
   void print(std::ostream &os=std::cout)const;
   BalancedTruncationDiagnostics() : D(0), m(0), r(0), protect(false), s(1.),
      sigma_sq_total(0), tail(0), local_error(0), amplification(0), YX_error(0),
-     Pi_norm(0), Pi0_norm(0), unprotected_bound(0), E_aug(-1), rank_limited_by_rtol(false){}
+     Pi_norm(0), Pi0_norm(0), unprotected_bound(0), E_aug(-1), rank_limited_by_rtol(false),
+     no_truncation(false){}
 };
 
 struct BalancedProjector{
@@ -87,10 +95,19 @@ public:
       const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F,
       const TruncatedSVD &trunc, double rtol=rtol_default);
 
-  //Default protected bond state: mean over past contexts of
-  //sum_nu state_a.row((nu,nu))^T ("trace" over the system).
-  //Gives q^T rhat = mean tr rho_S = 1 for an exact closure.
-  static Eigen::VectorXcd trace_weighted_rhat(const std::vector<Eigen::MatrixXcd> &states);
+  //Trace-weighted protected bond state: sum_a w_a sum_nu state_a.row((nu,nu))^T
+  //with weights normalized to sum 1 ("trace" over the system). Gives
+  //q^T rhat = sum_a w_a tr rho_S,a = 1 for an exact closure. Used with the
+  //past weights of the training contexts (balanced_rhat tw), or with a single
+  //reference trajectory and weight 1 (balanced_rhat reference).
+  static Eigen::VectorXcd trace_weighted_rhat(const std::vector<Eigen::MatrixXcd> &states,
+                                              const std::vector<double> &weights);
+
+  //core rank r for core singular values sigma; n_protected = m - r (1 or 0);
+  //values <= rtol*max(sigma_1, noise_scale) count as zero
+  static int core_rank(const Eigen::VectorXd &sigma, const TruncatedSVD &trunc,
+                       int n_protected, double rtol, double noise_scale=0.,
+                       bool *limited_by_rtol=nullptr);
 
   //||F (I - X Y) A||_F^2 (for checks)
   static double operational_error(const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F,
@@ -114,7 +131,7 @@ private:
   //common part: SVD of K = Fp Ap, rank selection, square-root factors
   static void core(BalancedProjector &ret,
       const Eigen::MatrixXcd &Ap, const Eigen::MatrixXcd &Fp,
-      const TruncatedSVD &trunc, double rtol,
+      const TruncatedSVD &trunc, int n_protected, double rtol, double noise_scale,
       Eigen::MatrixXcd &Xr, Eigen::MatrixXcd &Yr);
   static void finish_diagnostics(BalancedProjector &ret, 
                                  const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F);

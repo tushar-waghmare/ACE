@@ -1,0 +1,6 @@
+# Test reference past for 'balanced_rhat reference' (no observable needed).
+ta 0
+dt 1e-1
+te 3
+initial          {|1><1|_2}
+add_Hamiltonian  {0.3*(|0><1|_2+|1><0|_2)}

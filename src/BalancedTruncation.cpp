@@ -15,6 +15,7 @@ void BalancedTruncationDiagnostics::print(std::ostream &os)const{
   os<<" ||Pi||="<<Pi_norm<<" unprot_bound="<<unprotected_bound;
   if(E_aug>=0.){ os<<" E_aug="<<E_aug; }
   if(protect){ os<<" |s-1|="<<std::abs(s-1.)<<" ||Pi0||="<<Pi0_norm; }
+  if(no_truncation){ os<<" (no truncation: m>=D)"; }
   if(rank_limited_by_rtol){ os<<" (rank limited by numerically zero singular values)"; }
 }
 
@@ -53,27 +54,42 @@ void BalancedTruncation::set_training_diagnostics(BalancedProjector &P,
   P.diag.E_aug=augmented_error(A, F, P.X, P.Y, NL);
 }
 
+int BalancedTruncation::core_rank(const Eigen::VectorXd &sigma, const TruncatedSVD &trunc,
+                                  int n_protected, double rtol, double noise_scale,
+                                  bool *limited_by_rtol){
+  if(limited_by_rtol)*limited_by_rtol=false;
+  if(sigma.size()<1)return 0;
+  //maxk counts the total bond dimension: maxk == n_protected leaves no core
+  //direction (and maxk-n_protected=0 would mean 'no cap' to get_truncated_dim)
+  if(n_protected>0 && trunc.maxk==n_protected)return 0;
+
+  TruncatedSVD t=trunc;
+  t.maxk = (trunc.maxk>0) ? trunc.maxk-n_protected : 0;
+  t.mink = (trunc.mink>0) ? std::max(trunc.mink-n_protected, 0) : 0;
+
+  int r_num=0;
+  double cutoff=rtol*std::max(sigma(0), noise_scale);
+  if(sigma(0)>0.){
+    for(int i=0; i<sigma.size(); i++){
+      if(sigma(i)>cutoff)r_num++;
+    }
+  }
+  int r = (r_num>0) ? t.get_truncated_dim(sigma.head(r_num)) : 0;
+  if(limited_by_rtol && t.get_truncated_dim(sigma)>r)*limited_by_rtol=true;
+  return r;
+}
+
 void BalancedTruncation::core(BalancedProjector &ret,
       const Eigen::MatrixXcd &Ap, const Eigen::MatrixXcd &Fp,
-      const TruncatedSVD &trunc, double rtol,
+      const TruncatedSVD &trunc, int n_protected, double rtol, double noise_scale,
       Eigen::MatrixXcd &Xr, Eigen::MatrixXcd &Yr){
 
   Eigen::MatrixXcd K=Fp*Ap;
   Eigen::JacobiSVD<Eigen::MatrixXcd> svd(K, Eigen::ComputeThinU | Eigen::ComputeThinV);
   ret.sigma=svd.singularValues();
 
-  int r=0;
-  if(ret.sigma.size()>0 && ret.sigma(0)>0.){
-    r=trunc.get_truncated_dim(ret.sigma);
-    int r_num=0;
-    for(int i=0; i<ret.sigma.size(); i++){
-      if(ret.sigma(i)>rtol*ret.sigma(0))r_num++;
-    }
-    if(r>r_num){
-      r=r_num;
-      ret.diag.rank_limited_by_rtol=true;
-    }
-  }
+  //absolute noise floor of forming K: undeflated ||F|| ||A|| (Ap, Fp are deflated)
+  int r=core_rank(ret.sigma, trunc, n_protected, rtol, noise_scale, &ret.diag.rank_limited_by_rtol);
   ret.diag.r=r;
 
   ret.diag.sigma_sq_total=ret.sigma.squaredNorm();
@@ -93,6 +109,7 @@ void BalancedTruncation::finish_diagnostics(BalancedProjector &ret,
                               const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F){
   ret.diag.D=ret.X.rows();
   ret.diag.m=ret.X.cols();
+  ret.diag.no_truncation=(ret.diag.m>=ret.diag.D);
   ret.diag.amplification=norm2(ret.X)*norm2(ret.Y);
   ret.diag.Pi_norm=norm2(ret.X*ret.Y);
 
@@ -139,7 +156,7 @@ BalancedProjector BalancedTruncation::protected_projector(
   Eigen::MatrixXcd Fp=F-(F*rs)*q.transpose();
 
   Eigen::MatrixXcd Xr, Yr;
-  core(ret, Ap, Fp, trunc, rtol, Xr, Yr);
+  core(ret, Ap, Fp, trunc, 1, rtol, norm2(F)*norm2(A), Xr, Yr);
   int r=ret.diag.r;
 
   ret.X.resize(D, r+1);
@@ -167,14 +184,27 @@ BalancedProjector BalancedTruncation::unprotected_projector(
   }
   BalancedProjector ret;
   ret.diag.protect=false;
-  core(ret, A, F, trunc, rtol, ret.X, ret.Y);
+  core(ret, A, F, trunc, 0, rtol, norm2(F)*norm2(A), ret.X, ret.Y);
   finish_diagnostics(ret, A, F);
   return ret;
 }
 
-Eigen::VectorXcd BalancedTruncation::trace_weighted_rhat(const std::vector<Eigen::MatrixXcd> &states){
-  if(states.size()<1){
-    std::cerr<<"BalancedTruncation::trace_weighted_rhat: no states!"<<std::endl;
+Eigen::VectorXcd BalancedTruncation::trace_weighted_rhat(const std::vector<Eigen::MatrixXcd> &states,
+                                                         const std::vector<double> &weights){
+  if(states.size()<1 || states.size()!=weights.size()){
+    std::cerr<<"BalancedTruncation::trace_weighted_rhat: states.size()="<<states.size()<<", weights.size()="<<weights.size()<<"!"<<std::endl;
+    throw DummyException();
+  }
+  double wsum=0.;
+  for(double w : weights){
+    if(!(w>=0.)){
+      std::cerr<<"BalancedTruncation::trace_weighted_rhat: weights must be non-negative!"<<std::endl;
+      throw DummyException();
+    }
+    wsum+=w;
+  }
+  if(!(wsum>0.)){
+    std::cerr<<"BalancedTruncation::trace_weighted_rhat: sum of weights must be positive!"<<std::endl;
     throw DummyException();
   }
   int NL=states[0].rows();
@@ -184,16 +214,17 @@ Eigen::VectorXcd BalancedTruncation::trace_weighted_rhat(const std::vector<Eigen
     throw DummyException();
   }
   Eigen::VectorXcd rhat=Eigen::VectorXcd::Zero(states[0].cols());
-  for(const Eigen::MatrixXcd &st : states){
+  for(size_t a=0; a<states.size(); a++){
+    const Eigen::MatrixXcd &st=states[a];
     if(st.rows()!=NL || st.cols()!=rhat.size()){
       std::cerr<<"BalancedTruncation::trace_weighted_rhat: inconsistent state dimensions!"<<std::endl;
       throw DummyException();
     }
     for(int nu=0; nu<N; nu++){
-      rhat+=st.row(nu*N+nu).transpose();
+      rhat+=(weights[a]/wsum)*st.row(nu*N+nu).transpose();
     }
   }
-  return rhat/((double)states.size());
+  return rhat;
 }
 
 }//namespace

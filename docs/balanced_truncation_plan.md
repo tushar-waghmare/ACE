@@ -243,3 +243,21 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   `Pi_0 = rhat q^T / s`. The bracket's lower bound `sum_{i>d^2 m} sigma_i(F_aug A_aug)^2` is
   not logged by default: it vanishes unless the number of contexts exceeds `d^2 m`.
 
+- **Reference rhat** (`balanced_rhat reference`): one designated past, never "the first
+  context" (order of `add_balanced_context` must not matter). `balanced_rhat_context <file>`
+  defines it (context keys; observable ignored); default is the no-intervention past
+  (identity system propagation, `rho0 = 1/d`, `rhat_ni`). rhat is the trace-weighted bond
+  vector of that single trajectory (s = 1 for an exact closure). It is propagated through the
+  already-truncated past like the training pasts (`state <- state Y^T` after each cut) and
+  only defines rhat; it enters the Gramians only if also listed as a training context.
+- **maxk/mink:** refer to the total bond dimension m (`mink <= m <= maxk`, `r <= maxk-1`), as
+  `get_truncated_dim` does for SVD sweeps. `maxk = 1` -> r = 0, Pi = Pi_0. Numerically zero
+  core values are never kept (r = 0 allowed). Skip the insertion only if m >= D (a threshold
+  may still truncate when D <= maxk). `balanced_threshold` acts on operational core values
+  and is not comparable to the SVD threshold: compare at equal bond dimension via maxk.
+  Implementation note: the numerical-rank floor is `rtol * max(sigma_1, ||F||_2 ||A||_2)`;
+  a floor relative to sigma_1 alone fails when the whole core is rounding noise
+  (e.g. a past entirely along rhat), giving ||X|| ||Y|| ~ 1e8.
+- **Weights for rhat_tw:** weighted mean with normalized past weights,
+  `rhat = sum_a w_a r_a`, `sum_a w_a = 1` (protects the mixture the Gramians are built
+  from); past weights only.

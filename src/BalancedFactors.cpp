@@ -45,6 +45,10 @@ void BalancedFactors::step_backward(Eigen::MatrixXcd &chi, const ProcessTensorEl
 }
 
 Eigen::MatrixXcd BalancedFactors::final_tester(const BalancedContext &ctx, const ProcessTensorElement &e_last){
+  if(!ctx.has_observable){
+    std::cerr<<"BalancedFactors::final_tester: context '"<<ctx.label<<"' has no observable!"<<std::endl;
+    throw DummyException();
+  }
   if(e_last.closure.size()!=e_last.M.dim_d2){
     std::cerr<<"BalancedFactors::final_tester: closure of last element has size "<<e_last.closure.size()<<"!=dim_d2="<<e_last.M.dim_d2<<"!"<<std::endl;
     throw DummyException();

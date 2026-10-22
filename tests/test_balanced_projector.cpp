@@ -48,12 +48,31 @@ static void reference_tests(){
     std::stringstream ss; ss<<dir<<"state_"<<std::setw(2)<<std::setfill('0')<<a<<".txt";
     states.push_back(read_matrix(ss.str()));
   }
-  Eigen::VectorXcd rhat=BalancedTruncation::trace_weighted_rhat(states);
-  check(rel_norm(rhat, rhat_ref)<1e-13, "ref: trace_weighted_rhat == reference, rel. dev "+sci(rel_norm(rhat, rhat_ref)));
-
-  //protected: total bond dimension m -> core rank m-1
+  //uniform weights (unnormalized on purpose): equals the reference's plain mean
+  Eigen::VectorXcd rhat=BalancedTruncation::trace_weighted_rhat(states, std::vector<double>(states.size(), 2.5));
+  check(rel_norm(rhat, rhat_ref)<1e-13, "ref: trace_weighted_rhat (uniform w) == reference, rel. dev "+sci(rel_norm(rhat, rhat_ref)));
   {
-    TruncatedSVD trunc(0., m-1);
+    //unequal weights: rhat = sum_a w_a r_a with normalized w; order independent;
+    //s = q^T rhat = 1 because every past has tr rho_S = 1 on the exact toy PT
+    std::vector<double> wu; double wsum=0;
+    for(size_t a=0; a<states.size(); a++){ wu.push_back(1.+a*a); wsum+=1.+a*a; }
+    Eigen::VectorXcd direct=Eigen::VectorXcd::Zero(rhat.size());
+    for(size_t a=0; a<states.size(); a++){
+      direct+=(wu[a]/wsum)*(states[a].row(0)+states[a].row(3)).transpose();
+    }
+    Eigen::VectorXcd rw=BalancedTruncation::trace_weighted_rhat(states, wu);
+    check(rel_norm(rw, direct)<1e-14, "weighted rhat == sum_a w_a r_a, rel. dev "+sci(rel_norm(rw, direct)));
+    std::vector<Eigen::MatrixXcd> st_rev(states.rbegin(), states.rend());
+    std::vector<double> w_rev(wu.rbegin(), wu.rend());
+    double dperm=rel_norm(BalancedTruncation::trace_weighted_rhat(st_rev, w_rev), rw);
+    check(dperm<1e-14, "weighted rhat independent of context order, rel. dev "+sci(dperm));
+    std::complex<double> sw=q.transpose()*rw;
+    check(std::abs(sw-1.)<1e-10, "weighted rhat: q^T rhat == 1, dev "+sci(std::abs(sw-1.)));
+  }
+
+  //protected: maxk = total bond dimension m -> core rank m-1
+  {
+    TruncatedSVD trunc(0., m);
     BalancedProjector P=BalancedTruncation::protected_projector(A, F, q, rhat, trunc);
     Eigen::VectorXd s_ref=read_matrix(dir+"sigma_protected.txt").col(0).real();
     check(P.sigma.size()==s_ref.size(), "ref protected: number of core singular values");
@@ -115,6 +134,45 @@ static void reference_tests(){
     BalancedProjector P2=BalancedTruncation::protected_projector(A2, F, q, rhat, trunc2);
     check(P2.diag.r<=2 && P2.diag.rank_limited_by_rtol, "rank rule: numerically zero sigma never kept (r="+std::to_string(P2.diag.r)+")");
     check_identities("rank-deficient past", P2, A2, F, &q, &rhat);
+
+    //maxk/mink count the total bond dimension
+    for(int mk : {2, 3, 7}){
+      BalancedProjector Pk=BalancedTruncation::protected_projector(A, F, q, rhat, TruncatedSVD(0., mk));
+      check(Pk.diag.m==mk && Pk.diag.r==mk-1, "rank rule: maxk="+std::to_string(mk)+" -> m="+std::to_string(Pk.diag.m));
+    }
+    {
+      BalancedProjector Pk=BalancedTruncation::protected_projector(A, F, q, rhat, TruncatedSVD(0.5, 0, 4));
+      check(Pk.diag.m==4, "rank rule: mink=4 with coarse threshold -> m="+std::to_string(Pk.diag.m));
+    }
+    //maxk=1: r=0, Pi = Pi_0 = rhat q^T / s (maxk-1=0 must not mean 'no cap')
+    {
+      BalancedProjector P1=BalancedTruncation::protected_projector(A, F, q, rhat, TruncatedSVD(0., 1));
+      std::complex<double> s0=q.transpose()*rhat;
+      Eigen::MatrixXcd Pi0=rhat*q.transpose()/s0;
+      check(P1.diag.m==1 && P1.diag.r==0, "rank rule: maxk=1 -> m=1, r=0");
+      check(rel_norm(P1.get_Pi(), Pi0)<1e-14, "maxk=1: Pi == Pi_0");
+      check_identities("maxk=1", P1, A, F, &q, &rhat);
+    }
+    //numerically zero core: past entirely along rhat -> A_perp = 0 -> r=0, m=1
+    {
+      Eigen::MatrixXcd A0=rhat*random_matrix(1, 6, rng);
+      BalancedProjector P0=BalancedTruncation::protected_projector(A0, F, q, rhat, TruncatedSVD(0., 8, 3));
+      check(P0.diag.r==0 && P0.diag.m==1, "rank rule: numerically zero core -> r=0, m=1 (sigma_1="+sci(P0.sigma(0))+")");
+      check_identities("zero core", P0, A0, F, &q, &rhat);
+    }
+    //nothing dropped: decided from the rank rule (m>=D), not from D<=maxk
+    {
+      int D=A.rows();
+      BalancedProjector Pf=BalancedTruncation::protected_projector(A, F, q, rhat, TruncatedSVD(0., D+5));
+      check(Pf.diag.m==D && Pf.diag.no_truncation, "no truncation: maxk>D, threshold 0 -> m=D="+std::to_string(D)+", flagged");
+      BalancedProjector Pt=BalancedTruncation::protected_projector(A, F, q, rhat, TruncatedSVD(1e-3, D+5));
+      check(Pt.diag.m<D && !Pt.diag.no_truncation, "threshold still truncates when D<=maxk: m="+std::to_string(Pt.diag.m));
+    }
+    //unprotected keeps ACE semantics m=r
+    {
+      BalancedProjector Pu=BalancedTruncation::unprotected_projector(A, F, TruncatedSVD(0., 1));
+      check(Pu.diag.m==1 && Pu.diag.r==1, "unprotected: maxk=1 -> m=r=1");
+    }
   }
   //degenerate protected pair must throw
   {
@@ -153,7 +211,7 @@ static void ACE_PT_tests(){
     Eigen::MatrixXcd A=BalancedFactors::past_factor(s, w);
     const Eigen::MatrixXcd &F=factors.get_F(n);
     Eigen::VectorXcd q=e.closure;
-    Eigen::VectorXcd rhat=BalancedTruncation::trace_weighted_rhat(s);
+    Eigen::VectorXcd rhat=BalancedTruncation::trace_weighted_rhat(s, w);
     BalancedProjector P=BalancedTruncation::protected_projector(A, F, q, rhat, TruncatedSVD(1e-6, 0));
     std::string what="ACE cut "+std::to_string(n);
     check(P.diag.m<=P.diag.D, what+": D="+std::to_string(P.diag.D)+" -> m="+std::to_string(P.diag.m));

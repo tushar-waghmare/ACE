@@ -18,6 +18,11 @@ Eigen::VectorXcd BalancedContext::observable_vector()const{
 
 void BalancedContext::tabulate_steps(int n_steps){
   int NL=get_NL();
+  if(no_intervention){
+    S_first.assign(n_steps, Eigen::MatrixXcd::Identity(NL, NL));
+    S_second.assign(n_steps, Eigen::MatrixXcd::Identity(NL, NL));
+    return;
+  }
   if(tgrid.n_tot<n_steps){
     std::cerr<<"BalancedContext '"<<label<<"': time grid has n_tot="<<tgrid.n_tot<<" < "<<n_steps<<" required steps!"<<std::endl;
     throw DummyException();
@@ -37,9 +42,11 @@ void BalancedContext::tabulate_steps(int n_steps){
   }
 }
 
-void BalancedContext::setup(Parameters &param, const std::string &label_, double weight_){
+void BalancedContext::setup(Parameters &param, const std::string &label_, double weight_,
+                            bool require_observable){
   label=label_;
   weight=weight_;
+  no_intervention=false;
   if(!(weight>=0.)){
     std::cerr<<"BalancedContext '"<<label<<"': weight must be non-negative!"<<std::endl;
     throw DummyException();
@@ -63,11 +70,15 @@ void BalancedContext::setup(Parameters &param, const std::string &label_, double
   }
 
   Output_Ops ops(param);
-  if(ops.size()<1){
+  has_observable=require_observable;
+  if(!require_observable){
+    observable=Eigen::MatrixXcd::Zero(N, N);  //ignored
+  }else if(ops.size()<1){
     std::cerr<<"BalancedContext '"<<label<<"': please specify the observable via 'add_Output'!"<<std::endl;
     throw DummyException();
+  }else{
+    observable=ops[0];
   }
-  observable=ops[0];
   if(observable.rows()!=N || observable.cols()!=N){
     std::cerr<<"BalancedContext '"<<label<<"': dimension of observable ("<<observable.rows()<<") does not match initial state ("<<N<<")!"<<std::endl;
     throw DummyException();
@@ -79,9 +90,22 @@ void BalancedContext::setup(Parameters &param, const std::string &label_, double
   S_second.clear();
 }
 
-void BalancedContext::setup(const std::string &fname, double weight_){
+void BalancedContext::setup(const std::string &fname, double weight_, bool require_observable){
   Parameters param(fname);
-  setup(param, fname, weight_);
+  setup(param, fname, weight_, require_observable);
+}
+
+void BalancedContext::setup_no_intervention(int N, const TimeGrid &tgrid_){
+  label="no-intervention";
+  weight=1.;
+  has_observable=false;
+  no_intervention=true;
+  initial_rho=Eigen::MatrixXcd::Identity(N, N)/((double)N);
+  observable=Eigen::MatrixXcd::Zero(N, N);
+  tgrid=tgrid_;
+  fprop=FreePropagator(N);
+  S_first.clear();
+  S_second.clear();
 }
 
 
@@ -109,6 +133,32 @@ void BalancedContexts::setup(Parameters &param){
     }
     add(row[0], weight);
   }
+  set_rhat(param.get_as_string("balanced_rhat", "tw"),
+           param.get_as_string("balanced_rhat_context", ""));
+}
+
+void BalancedContexts::set_rhat(const std::string &mode, const std::string &fname){
+  if(mode!="tw" && mode!="reference"){
+    std::cerr<<"BalancedContexts: 'balanced_rhat' must be 'tw' or 'reference' (got '"<<mode<<"')!"<<std::endl;
+    throw DummyException();
+  }
+  if(mode=="tw" && fname!=""){
+    std::cerr<<"BalancedContexts: 'balanced_rhat_context' requires 'balanced_rhat reference'!"<<std::endl;
+    throw DummyException();
+  }
+  rhat_mode=mode;
+  rhat_context=BalancedContext();
+  if(mode=="reference"){
+    if(fname!=""){
+      rhat_context.setup(fname, 1., false);
+    }else{
+      if(list.size()<1){
+        std::cerr<<"BalancedContexts: no-intervention reference past needs at least one context (dimension, time grid)!"<<std::endl;
+        throw DummyException();
+      }
+      rhat_context.setup_no_intervention(list[0].get_N(), list[0].tgrid);
+    }
+  }
 }
 
 std::vector<double> BalancedContexts::normalized_weights()const{
@@ -129,7 +179,11 @@ void BalancedContexts::check_consistency(int n_steps)const{
     throw DummyException();
   }
   const BalancedContext &c0=list[0];
-  for(const BalancedContext &c : list){
+  std::vector<const BalancedContext *> all;
+  for(const BalancedContext &c : list){ all.push_back(&c); }
+  if(use_reference_rhat()){ all.push_back(&rhat_context); }
+  for(const BalancedContext *cp : all){
+    const BalancedContext &c=*cp;
     if(c.get_N()!=c0.get_N()){
       std::cerr<<"BalancedContexts: system dimension of '"<<c.label<<"' ("<<c.get_N()<<") differs from '"<<c0.label<<"' ("<<c0.get_N()<<")!"<<std::endl;
       throw DummyException();
@@ -150,6 +204,9 @@ void BalancedContexts::tabulate_steps(int n_steps){
   for(BalancedContext &c : list){
     c.tabulate_steps(n_steps);
   }
+  if(use_reference_rhat()){
+    rhat_context.tabulate_steps(n_steps);
+  }
 }
 
 void BalancedContexts::print_info(std::ostream &os)const{
@@ -158,6 +215,9 @@ void BalancedContexts::print_info(std::ostream &os)const{
   for(size_t i=0; i<list.size(); i++){
     os<<"  "<<i<<": '"<<list[i].label<<"' weight="<<w[i]<<" N="<<list[i].get_N()<<" n_tot="<<list[i].tgrid.n_tot<<std::endl;
   }
+  os<<"  rhat: "<<rhat_mode;
+  if(use_reference_rhat()){ os<<" (reference past '"<<rhat_context.label<<"')"; }
+  os<<std::endl;
 }
 
 }//namespace
