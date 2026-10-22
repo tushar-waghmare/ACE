@@ -55,11 +55,20 @@ def main(outdir):
     write_matrix(os.path.join(outdir, "Pi_protected.txt"), Pi)
     write_matrix(os.path.join(outdir, "sigma_unprotected.txt"), Su[:, None])
     write_matrix(os.path.join(outdir, "Pi_unprotected.txt"), Piu)
+    # E_aug on the training pairs, computed as in test T5 (per-pair states/testers)
+    Ps = [br.run_forward(pt, cc, k + 1) for cc in ctx_p]
+    Cs = [br.tester(pt, cc, k) for cc in ctx_f]
+    R = np.eye(pt.D) - Pi
+    E_aug = np.mean([abs(br.pair(ch, ps @ R.T)) ** 2 for ps in Ps for ch in Cs])
+
     with open(os.path.join(outdir, "scalars.txt"), 'w') as f:
         f.write(f"m {m}\n")
         f.write(f"n_contexts {len(ctx_p)}\n")
         f.write(f"E_abs_protected {br.err_abs(A, F, Pi):.17e}\n")
         f.write(f"E_abs_unprotected {br.err_abs(A, F, Piu):.17e}\n")
+        f.write(f"E_aug_protected {E_aug:.17e}\n")
+        f.write(f"unprotected_bound {np.sum(Su[m:] ** 2):.17e}\n")
+        f.write(f"NL {pt.NL}\n")
     print(f"wrote reference data to {outdir}: D={pt.D}, NL={pt.NL}, A {A.shape}, F {F.shape}, m={m}")
 
 

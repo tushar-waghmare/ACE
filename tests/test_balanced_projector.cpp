@@ -66,6 +66,21 @@ static void reference_tests(){
     check(std::abs(P.diag.tail-E_ref)<1e-9*E_ref, "ref protected: E_abs == reference ("+sci(P.diag.tail)+" vs "+sci(E_ref)+")");
     check(std::abs(P.diag.s-1.)<1e-10, "ref protected: q^T rhat == 1 (T3c), dev "+sci(std::abs(P.diag.s-1.)));
     check_identities("ref protected", P, A, F, &q, &rhat);
+
+    //per-cut diagnostics (Section 7 decisions)
+    int NL=(int)sc["NL"];
+    BalancedTruncation::set_training_diagnostics(P, A, F, NL);
+    double Ea_ref=sc["E_aug_protected"];
+    check(std::abs(P.diag.E_aug-Ea_ref)<1e-9*Ea_ref, "ref protected: E_aug == reference T5 ("+sci(P.diag.E_aug)+" vs "+sci(Ea_ref)+")");
+    check(P.diag.E_aug<=NL*P.diag.tail*(1.+1e-12), "ref protected: E_aug <= d^2 E_abs (T5 upper bound)");
+    double ub_ref=sc["unprotected_bound"];
+    check(std::abs(P.diag.unprotected_bound-ub_ref)<1e-9*ub_ref, "ref protected: unprotected bound == reference ("+sci(P.diag.unprotected_bound)+")");
+    check(P.diag.unprotected_bound<=P.diag.tail*(1.+1e-12), "ref protected: unprotected bound <= protected error");
+    double pn_ref=BalancedTruncation::norm2(read_matrix(dir+"Pi_protected.txt"));
+    check(std::abs(P.diag.Pi_norm-pn_ref)<1e-10*pn_ref, "ref protected: ||Pi||_2 == reference ("+sci(P.diag.Pi_norm)+")");
+    std::complex<double> s0=q.transpose()*rhat;
+    double p0=BalancedTruncation::norm2(rhat*q.transpose()/s0);
+    check(std::abs(P.diag.Pi0_norm-p0)<1e-10*p0, "ref protected: ||Pi_0||_2 == ||rhat q^T/s||_2 ("+sci(p0)+")");
     std::cout<<"      diagnostics: "; P.diag.print(); std::cout<<std::endl;
   }
   //unprotected: rank m
@@ -80,6 +95,7 @@ static void reference_tests(){
     check(dPi<1e-8, "ref unprotected: Pi == reference, rel. dev "+sci(dPi));
     double E_ref=sc["E_abs_unprotected"];
     check(std::abs(P.diag.tail-E_ref)<1e-9*E_ref, "ref unprotected: E_abs == reference ("+sci(P.diag.tail)+" vs "+sci(E_ref)+")");
+    check(std::abs(P.diag.unprotected_bound-P.diag.tail)<1e-9*E_ref, "ref unprotected: unprotected bound == own tail");
     check_identities("ref unprotected", P, A, F, nullptr, nullptr);
   }
   //rank rules: relative threshold on core singular values, mink, rtol guard
@@ -144,6 +160,8 @@ static void ACE_PT_tests(){
     //closure of an SVD-truncated PT is not exact: s = 1 only approximately
     check(std::abs(P.diag.s-1.)<1e-4, what+": |q^T rhat - 1| = "+sci(std::abs(P.diag.s-1.))+" (inexact closure of input PT)");
     check_identities(what, P, A, F, &q, &rhat);
+    BalancedTruncation::set_training_diagnostics(P, A, F, contexts[0].get_NL());
+    check(P.diag.E_aug>=0. && P.diag.E_aug<=contexts[0].get_NL()*P.diag.tail*(1.+1e-9)+1e-30, what+": 0 <= E_aug <= d^2 E_abs");
     std::cout<<"      diagnostics: "; P.diag.print(); std::cout<<std::endl;
   }
 }

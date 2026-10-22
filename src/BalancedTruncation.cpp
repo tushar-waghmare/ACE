@@ -12,7 +12,9 @@ void BalancedTruncationDiagnostics::print(std::ostream &os)const{
     <<" local_error="<<local_error
     <<" ||X||*||Y||="<<amplification
     <<" |YX-I|="<<YX_error;
-  if(protect){ os<<" |s-1|="<<std::abs(s-1.); }
+  os<<" ||Pi||="<<Pi_norm<<" unprot_bound="<<unprotected_bound;
+  if(E_aug>=0.){ os<<" E_aug="<<E_aug; }
+  if(protect){ os<<" |s-1|="<<std::abs(s-1.)<<" ||Pi0||="<<Pi0_norm; }
   if(rank_limited_by_rtol){ os<<" (rank limited by numerically zero singular values)"; }
 }
 
@@ -27,6 +29,28 @@ double BalancedTruncation::operational_error(const Eigen::MatrixXcd &A, const Ei
   Eigen::MatrixXcd YA=Y*A;
   Eigen::MatrixXcd R=F*A-(F*X)*YA;
   return R.squaredNorm();
+}
+
+double BalancedTruncation::augmented_error(const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F,
+                              const Eigen::MatrixXcd &X, const Eigen::MatrixXcd &Y, int NL){
+  if(NL<1 || A.cols()%NL!=0 || F.rows()%NL!=0){
+    std::cerr<<"BalancedTruncation::augmented_error: factor dimensions ("<<F.rows()<<", "<<A.cols()<<") not multiples of NL="<<NL<<"!"<<std::endl;
+    throw DummyException();
+  }
+  Eigen::MatrixXcd YA=Y*A;
+  Eigen::MatrixXcd R=F*A-(F*X)*YA;
+  double E=0.;
+  for(int b=0; b<F.rows()/NL; b++){
+    for(int a=0; a<A.cols()/NL; a++){
+      E+=std::norm(R.block(b*NL, a*NL, NL, NL).trace());
+    }
+  }
+  return E;
+}
+
+void BalancedTruncation::set_training_diagnostics(BalancedProjector &P, 
+                              const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F, int NL){
+  P.diag.E_aug=augmented_error(A, F, P.X, P.Y, NL);
 }
 
 void BalancedTruncation::core(BalancedProjector &ret,
@@ -65,10 +89,20 @@ void BalancedTruncation::core(BalancedProjector &ret,
   Yr=isq.asDiagonal()*(svd.matrixU().leftCols(r).adjoint()*Fp);
 }
 
-void BalancedTruncation::finish_diagnostics(BalancedProjector &ret){
+void BalancedTruncation::finish_diagnostics(BalancedProjector &ret,
+                              const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F){
   ret.diag.D=ret.X.rows();
   ret.diag.m=ret.X.cols();
   ret.diag.amplification=norm2(ret.X)*norm2(ret.Y);
+  ret.diag.Pi_norm=norm2(ret.X*ret.Y);
+
+  //best unprotected error at the same total bond dimension m
+  Eigen::JacobiSVD<Eigen::MatrixXcd> svd(F*A);
+  const Eigen::VectorXd &sv=svd.singularValues();
+  ret.diag.unprotected_bound=0.;
+  for(int i=ret.diag.m; i<sv.size(); i++){
+    ret.diag.unprotected_bound+=sv(i)*sv(i);
+  }
   if(ret.diag.m>0){
     Eigen::MatrixXcd YX=ret.Y*ret.X;
     ret.diag.YX_error=(YX-Eigen::MatrixXcd::Identity(ret.diag.m, ret.diag.m)).cwiseAbs().maxCoeff();
@@ -115,7 +149,10 @@ BalancedProjector BalancedTruncation::protected_projector(
   ret.Y.row(0)=q.transpose();
   ret.Y.bottomRows(r)=Yr;
 
-  finish_diagnostics(ret);
+  //Pi_0 = rhat q^T / s is rank one
+  ret.diag.Pi0_norm=rhat.norm()*q.norm()/std::abs(s);
+
+  finish_diagnostics(ret, A, F);
   return ret;
 }
 
@@ -131,7 +168,7 @@ BalancedProjector BalancedTruncation::unprotected_projector(
   BalancedProjector ret;
   ret.diag.protect=false;
   core(ret, A, F, trunc, rtol, ret.X, ret.Y);
-  finish_diagnostics(ret);
+  finish_diagnostics(ret, A, F);
   return ret;
 }
 

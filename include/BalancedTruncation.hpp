@@ -49,12 +49,16 @@ struct BalancedTruncationDiagnostics{
   double local_error;        //tail/sigma_sq_total (relative operational error)
   double amplification;      //||X||_2 ||Y||_2 (oblique amplification)
   double YX_error;           //max |(YX - I)_ij|
+  double Pi_norm;            //||Pi||_2
+  double Pi0_norm;           //||Pi_0||_2, Pi_0 = rhat q^T / s (protected only)
+  double unprotected_bound;  //sum_{i>m} sigma_i(F A)^2 (optimal unprotected error at rank m)
+  double E_aug;              //error on the training pairs, see augmented_error; <0: not computed
   bool rank_limited_by_rtol; //r was reduced because of numerically zero sigma
 
   void print(std::ostream &os=std::cout)const;
   BalancedTruncationDiagnostics() : D(0), m(0), r(0), protect(false), s(1.),
      sigma_sq_total(0), tail(0), local_error(0), amplification(0), YX_error(0),
-     rank_limited_by_rtol(false){}
+     Pi_norm(0), Pi0_norm(0), unprotected_bound(0), E_aug(-1), rank_limited_by_rtol(false){}
 };
 
 struct BalancedProjector{
@@ -92,6 +96,17 @@ public:
   static double operational_error(const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F,
                                   const Eigen::MatrixXcd &X, const Eigen::MatrixXcd &Y);
 
+  //Error on the training pairs (past a, future b), for factors with NL rows/columns
+  //per context as assembled by BalancedFactors:
+  //  E_aug = sum_{a,b} w_a v_b |sum(chi_b .* state_a (I-Pi)^T)|^2 
+  //        = sum_{a,b} |tr block_{b,a}( F (I - X Y) A )|^2
+  static double augmented_error(const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F,
+                                const Eigen::MatrixXcd &X, const Eigen::MatrixXcd &Y, int NL);
+
+  //fills P.diag.E_aug from the (operational) training factors A, F
+  static void set_training_diagnostics(BalancedProjector &P, 
+                                const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F, int NL);
+
   //largest singular value
   static double norm2(const Eigen::MatrixXcd &M);
 
@@ -101,7 +116,8 @@ private:
       const Eigen::MatrixXcd &Ap, const Eigen::MatrixXcd &Fp,
       const TruncatedSVD &trunc, double rtol,
       Eigen::MatrixXcd &Xr, Eigen::MatrixXcd &Yr);
-  static void finish_diagnostics(BalancedProjector &ret);
+  static void finish_diagnostics(BalancedProjector &ret, 
+                                 const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F);
 };
 
 }//namespace

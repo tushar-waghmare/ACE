@@ -2,3 +2,6 @@ m 5
 n_contexts 12
 E_abs_protected 5.08057169901561913e-04
 E_abs_unprotected 4.71483130486300285e-04
+E_aug_protected 1.21333338720759434e-04
+unprotected_bound 4.71483130486300339e-04
+NL 4

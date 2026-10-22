@@ -163,13 +163,17 @@ trunc, verbosity)` implementing Section 2's schedule (respect block buffering: u
 `get(n, ForwardPreload)` / `BackwardPreload`, don't keep references across block loads;
 throw if `TTree` is set). Tool `src_exec/tools/PTB_balanced_truncate.cpp`:
 `read_PT`, `write_PT`, `add_balanced_context ...`, `balanced_threshold`, `balanced_maxk`,
-`balanced_protect` (`closure`|`none`), `verbosity`. *Tests:* T4 and T8 on a small PT;
+`balanced_rhat` (`tw`|`reference`, default `tw`), `balanced_eta` (see Phase 5), `verbosity`.
+Closure protection is mandatory (no `balanced_protect none`; see Section 7). Log the per-cut
+diagnostics listed in Section 7. *Tests:* T4 and T8 on a small PT;
 running a context through the truncated PT with `add_PT` reproduces the in-memory result.
 
 **Phase 5: Blend + HS baseline in the same code path.** Flat HS Gramians (dictionary
 multiplicities!), gauge-invariant blend (`balanced_eta`), and `balanced_mode hs` which must
 reproduce optimal HS truncation (compare to an ACE SVD sweep at equal bond dimension: should be
 equal or better per cut). *Test:* gauge invariance (T6) with a random gauge applied to a bond.
+The blend is the production default (`balanced_eta 0.3`); until this phase lands, Phase 4 runs
+with eta = 0 (pure operational).
 
 **Phase 6: Benchmarks** (scripts in `benchmarks/balanced/`, outputs as CSV):
 (a) QD phonons: `examples/NatPhys2022/02_phonons/03_calculate_phonon_PT.param` with a family
@@ -221,3 +225,21 @@ dimension on held-out pulses; no change to outputs of existing examples with def
 - `rhat`: trace-weighted mean bond state (current default) vs. other choices or `q`-only protection.
 - Context ensembles for the benchmarks (which pulse family, train/test split).
 - Whether/how to apply operational truncation during mode merges (intermediate sweeps).
+
+### Decisions (2026-10-22)
+
+- **Objective:** closed-form absorbed objective plus the gauge-invariant blend, `balanced_eta`
+  as a parameter, default 0.3. This is the object the Proposition guarantees, stays
+  well-conditioned, and costs one small SVD per cut. ALS refinement of the system-coupled
+  objective is a v2 research item: only with regularization (Tikhonov on X, Y, or a cap on
+  `||XY||_2`), judged only out of distribution, never the default.
+- **rhat:** default trace-weighted `rhat_tw`; expose `balanced_rhat tw|reference` for
+  experiments. No optimizer over rhat.
+- **Protection:** closure protection is mandatory (T4 and T8 depend on it). The unprotected
+  projector stays in the library only for baselines, bounds and tests.
+- **Per-cut diagnostics** (in addition to Section 2, item 8):
+  `E_aug(Pi)` on the training pairs (always on the operational factors, also when blending);
+  `||Pi||_2`; the unprotected bound `sum_{i>m} sigma_i(F A)^2`; `|s - 1|`; `||Pi_0||_2` with
+  `Pi_0 = rhat q^T / s`. The bracket's lower bound `sum_{i>d^2 m} sigma_i(F_aug A_aug)^2` is
+  not logged by default: it vanishes unless the number of contexts exceeds `d^2 m`.
+
