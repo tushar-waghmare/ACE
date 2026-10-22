@@ -215,6 +215,35 @@ Eigen::Map<Eigen::Matrix<std::complex<double>, Eigen::Dynamic, Eigen::Dynamic, E
   state.swap(state2);
 }
 
+void ProcessTensorElementAccessor::propagate_adjoint(
+          Eigen::MatrixXcd &chi, const MPS_Matrix &M, int dim1_front,
+          const ReadPT_struct &expand)const{
+
+  if(dim1_front!=1 || expand.have_to_expand()){
+    std::cerr<<"ProcessTensorElementAccessor::propagate_adjoint: only implemented for dim1_front==1 and no expansion!"<<std::endl;
+    throw DummyException();
+  }
+  if(chi.cols()!=M.dim_d2){
+    std::cerr<<"ProcessTensorElementAccessor::propagate_adjoint: chi.cols()!=M.dim_d2 ("<<chi.cols()<<" vs. "<<M.dim_d2<<")!"<<std::endl;
+    throw DummyException();
+  }
+  int NL=dict.get_NL();
+  if(chi.rows()!=NL){
+    std::cerr<<"ProcessTensorElementAccessor::propagate_adjoint: chi.rows()!=NL ("<<chi.rows()<<" vs. "<<NL<<")!"<<std::endl;
+    throw DummyException();
+  }
+
+  Eigen::MatrixXcd chi2 = Eigen::MatrixXcd::Zero(NL, M.dim_d1);
+  for(int i=0; i<NL; i++){
+    for(int j=0; j<NL; j++){
+      int i_ind=dict.beta[i*NL+j]; if(i_ind<0)continue;
+      chi2.row(j).noalias() += chi.row(i) *
+Eigen::Map<const Eigen::Matrix<std::complex<double>, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>, 0, Eigen::OuterStride<> >(M.mem+i_ind*M.dim_d2,M.dim_d1,M.dim_d2,Eigen::OuterStride<>(M.dim_i*M.dim_d2)).transpose();
+    }
+  }
+  chi.swap(chi2);
+}
+
 void ProcessTensorElementAccessor::set_trivial(int N, MPS_Matrix &M){
   dict.set_trivial(N);
   M.resize(1, 1, 1); M.fill(1.);

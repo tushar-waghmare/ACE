@@ -67,6 +67,10 @@ struct ProcessTensorElement{
                         const ReadPT_struct &expand=ReadPT_struct())const{
     accessor.propagate(state, M, dim1_front, expand);
   }
+  //adjoint of 'propagate' (bilinear pairing; see ProcessTensorElementAccessor)
+  inline void propagate_adjoint(Eigen::MatrixXcd &chi)const{
+    accessor.propagate_adjoint(chi, M);
+  }
 
   //join two elements and replace this one. 
   //The outer indices are multiplied as indicated by the accessors where 

@@ -100,7 +100,15 @@ public:
 
   void propagate(Eigen::MatrixXcd &state, const MPS_Matrix &M, int dim1_front,
                  const ReadPT_struct &expand=ReadPT_struct())const;
-  
+
+  //Adjoint of 'propagate' w.r.t. the bilinear pairing sum(chi .* state):
+  //tester 'chi' (NL x M.dim_d2) on bond d2 -> tester (NL x M.dim_d1) on bond d1,
+  //chi_in.row(j) += chi_out.row(i) * M_slice(dict(i,j))^T.
+  //So far only for dim1_front==1 and no expansion.
+  void propagate_adjoint(Eigen::MatrixXcd &chi, const MPS_Matrix &M,
+                 int dim1_front=1,
+                 const ReadPT_struct &expand=ReadPT_struct())const;
+
   void read_binary(std::istream &is);
   void write_binary(std::ostream &os)const;
 };
