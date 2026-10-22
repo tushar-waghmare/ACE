@@ -3,3 +3,7 @@ smoke.pt*
 _tmp_*
 bench*.pt*
 *.log
+results/*/seed_*/
+results/*/ctx/
+results/*/runs/
+builds_done.log
