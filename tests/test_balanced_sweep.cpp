@@ -139,7 +139,7 @@ static void sweep_tests(){
     for(int maxk : {3, 6}){
       BalancedContexts train=make_contexts(train_files, rhat_mode);
       ProcessTensorBuffer bal; load_in_memory(bal, exact_PT);
-      BalancedSweepOptions opt; opt.trunc=TruncatedSVD(0., maxk); opt.verbosity=0;
+      BalancedSweepOptions opt; opt.trunc=TruncatedSVD(0., maxk); opt.verbosity=0; opt.eta=0.;
       std::vector<BalancedTruncationDiagnostics> diags=BalancedSweep::sweep_forward(bal, train, opt);
       int maxdim=0;
       for(int n=0; n<bal.get_n_tot(); n++)maxdim=std::max(maxdim, bal.get(n).M.dim_d2);
@@ -171,7 +171,7 @@ static void sweep_tests(){
 static void tool_tests(){
   std::string out="tests/data/bal_tool.pt";
   std::string cmd="tools/PTB_balanced_truncate -read_PT "+small_PT()+" -write_PT "+out+
-                  " -balanced_maxk 6 -balanced_rhat reference -verbosity 0";
+                  " -balanced_maxk 6 -balanced_rhat reference -balanced_eta 0 -verbosity 0";
   for(const std::string &f : train_files){ cmd+=" -add_balanced_context "+f; }
   cmd+=" -balanced_log tests/data/bal_tool.csv > /dev/null";
   int ret=std::system(cmd.c_str());
@@ -180,7 +180,7 @@ static void tool_tests(){
 
   BalancedContexts train=make_contexts(train_files, "reference");
   ProcessTensorBuffer mem; load_in_memory(mem, small_PT());
-  BalancedSweepOptions opt; opt.trunc=TruncatedSVD(0., 6); opt.verbosity=0;
+  BalancedSweepOptions opt; opt.trunc=TruncatedSVD(0., 6); opt.verbosity=0; opt.eta=0.;
   BalancedSweep::sweep_forward(mem, train, opt);
 
   ProcessTensorBuffer tool(out, true);
@@ -204,7 +204,7 @@ static void tool_tests(){
 
 static void error_tests(){
   BalancedContexts train=make_contexts(train_files);
-  BalancedSweepOptions opt; opt.trunc=TruncatedSVD(0., 6); opt.verbosity=0;
+  BalancedSweepOptions opt; opt.trunc=TruncatedSVD(0., 6); opt.verbosity=0; opt.eta=0.;
   int n_threw=0;
   std::streambuf *old=std::cerr.rdbuf(nullptr);
   {
@@ -213,11 +213,11 @@ static void error_tests(){
   }
   {
     ProcessTensorBuffer mem; load_in_memory(mem, small_PT());
-    BalancedSweepOptions o2=opt; o2.eta=0.3;
+    BalancedSweepOptions o2=opt; o2.eta=1.5;
     try{ BalancedSweep::sweep_forward(mem, train, o2); }catch(DummyException &){ n_threw++; }
   }
   std::cerr.rdbuf(old); std::cerr.clear();
-  check(n_threw==2, "read-only PT and (not yet implemented) eta>0 throw");
+  check(n_threw==2, "read-only PT and eta outside [0,1] throw");
 }
 
 int main(){

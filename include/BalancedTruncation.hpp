@@ -125,7 +125,8 @@ public:
   static double augmented_error(const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F,
                                 const Eigen::MatrixXcd &X, const Eigen::MatrixXcd &Y, int NL);
 
-  //fills P.diag.E_aug from the (operational) training factors A, F
+  //fills P.diag.E_aug and P.diag.unprotected_bound from the (operational)
+  //training factors A, F (relevant when P was built from blended factors)
   static void set_training_diagnostics(BalancedProjector &P, 
                                 const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F, int NL);
 

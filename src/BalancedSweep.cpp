@@ -1,4 +1,5 @@
 #include "BalancedSweep.hpp"
+#include "BalancedGramians.hpp"
 #include "DummyException.hpp"
 #include "Timings.hpp"
 #include <fstream>
@@ -9,7 +10,7 @@ void BalancedSweepOptions::setup(Parameters &param){
   trunc=TruncatedSVD(param.get_as_double("balanced_threshold", 0.),
                      param.get_as_int("balanced_maxk", 0),
                      param.get_as_int("balanced_mink", 0));
-  eta=param.get_as_double("balanced_eta", 0.);
+  eta=param.get_as_double("balanced_eta", 0.3);
   rtol=param.get_as_double("balanced_rtol", BalancedTruncation::rtol_default);
   verbosity=param.get_as_int("verbosity", 1);
   log_file=param.get_as_string("balanced_log", "");
@@ -69,8 +70,8 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
     std::cerr<<"BalancedSweep::sweep_forward: PT is read-only!"<<std::endl;
     throw DummyException();
   }
-  if(opt.eta!=0.){
-    std::cerr<<"BalancedSweep::sweep_forward: balanced_eta>0 (HS blend) is not implemented yet!"<<std::endl;
+  if(opt.eta<0. || opt.eta>1.){
+    std::cerr<<"BalancedSweep::sweep_forward: eta="<<opt.eta<<" not in [0,1]!"<<std::endl;
     throw DummyException();
   }
   BalancedFactors::check_PT(PTB, contexts);
@@ -88,6 +89,14 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
   //1. future factors on the untruncated PT
   BalancedFactors factors;
   factors.compute_future_factors(PTB, contexts, opt.verbosity);
+  //HS Gramians for the blend: future on the untruncated PT, past through the truncated one
+  bool use_blend=(opt.eta>0.);
+  BalancedGramians gramians;
+  Eigen::MatrixXcd L_hs;  //Wp_hs = L L^dagger (normalized; Pi is scale invariant)
+  if(use_blend){
+    gramians.compute_future(PTB, true);
+    L_hs=BalancedGramians::initial_L(PTB.get(0, ForwardPreload));
+  }
 
   //2. forward pass
   std::vector<double> w=contexts.normalized_weights();
@@ -118,6 +127,7 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
         BalancedFactors::step_forward(states[a], e, contexts[a], n);
       }
       if(use_ref){ BalancedFactors::step_forward(ref_state, e, contexts.rhat_context, n); }
+      if(use_blend){ L_hs=BalancedGramians::forward(L_hs, e, true); }
 
       const Eigen::MatrixXcd &F=factors.get_F(n);
       if(F.cols()!=e.M.dim_d2 || states[0].cols()!=e.M.dim_d2){
@@ -129,7 +139,14 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
           BalancedTruncation::trace_weighted_rhat({ref_state}, {1.}) :
           BalancedTruncation::trace_weighted_rhat(states, w);
 
-      P=BalancedTruncation::protected_projector(A, F, e.closure, rhat, opt.trunc, opt.rtol);
+      if(use_blend){
+        Eigen::MatrixXcd A_b, F_b;
+        BalancedGramians::blended_factors(A, F, L_hs, gramians.get_R(n), opt.eta, A_b, F_b);
+        P=BalancedTruncation::protected_projector(A_b, F_b, e.closure, rhat, opt.trunc, opt.rtol);
+      }else{
+        P=BalancedTruncation::protected_projector(A, F, e.closure, rhat, opt.trunc, opt.rtol);
+      }
+      //E_aug and the unprotected bound always refer to the operational factors
       BalancedTruncation::set_training_diagnostics(P, A, F, NL);
     }
     P.diag.cut=n;
@@ -140,6 +157,7 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
       Eigen::MatrixXcd Yt=P.Y.transpose();
       for(Eigen::MatrixXcd &st : states){ st=st*Yt; }
       if(use_ref){ ref_state=ref_state*Yt; }
+      if(use_blend){ L_hs=P.Y*L_hs; }
     }
     int D_out = P.diag.no_truncation ? P.diag.D : P.diag.m;
     if(D_out>maxdim_out)maxdim_out=D_out;

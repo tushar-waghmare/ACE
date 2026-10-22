@@ -18,7 +18,8 @@
                          (not comparable to SVD thresholds; compare via maxk)
     balanced_rhat        tw (default) | reference
     balanced_rhat_context <file.param>   reference past (default: no intervention)
-    balanced_eta         HS blend weight (default 0)
+    balanced_eta         gauge-invariant HS blend weight in [0,1] (default 0.3;
+                         0: operational, 1: HS, always closure-protected)
     balanced_rtol        numerical-rank floor (default 1e-13)
     balanced_log         CSV file with per-cut diagnostics
     buffer_blocksize     block size of the output PT (default: single file)

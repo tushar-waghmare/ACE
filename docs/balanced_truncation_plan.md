@@ -261,3 +261,14 @@ dimension on held-out pulses; no change to outputs of existing examples with def
 - **Weights for rhat_tw:** weighted mean with normalized past weights,
   `rhat = sum_a w_a r_a`, `sum_a w_a = 1` (protects the mixture the Gramians are built
   from); past weights only.
+- **Phase 5 implementation notes (2026-10-22):** no separate unprotected `balanced_mode hs`
+  (protection is mandatory); `balanced_eta 1` is the protected pure-HS case, and the
+  reproduction of optimal HS/SVD truncation by unprotected HS balancing is a library test.
+  HS Gramians use dictionary multiplicities (ACE's SVD sweeps use multiplicity 1 per stored
+  index; both agree on expanded PTs). Gramians are never formed: square-root factors
+  `Wp = L L^+`, `Wf = R^+ R` are propagated with QR compression, and the blend uses the exact
+  factors `A_b = [sqrt((1-eta)/c_po) A, sqrt(eta/c_ph) L]`, `F_b = [...; ...]`. An
+  eigendecomposition-based version lost gauge invariance to ~eps cond(G)^2-3 and inflated
+  `||X|| ||Y||` to 1e5-1e7 on the test PT; the square-root version is gauge invariant to
+  ~1e-13. When blending, `local_error`/`tail`/`amplification` refer to the blended
+  objective, `E_aug` and the unprotected bound to the operational one.

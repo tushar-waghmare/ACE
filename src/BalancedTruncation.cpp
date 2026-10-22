@@ -63,6 +63,10 @@ double BalancedTruncation::augmented_error(const Eigen::MatrixXcd &A, const Eige
 void BalancedTruncation::set_training_diagnostics(BalancedProjector &P, 
                               const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F, int NL){
   P.diag.E_aug=augmented_error(A, F, P.X, P.Y, NL);
+  Eigen::JacobiSVD<Eigen::MatrixXcd> svd(F*A);
+  const Eigen::VectorXd &sv=svd.singularValues();
+  P.diag.unprotected_bound=0.;
+  for(int i=P.diag.m; i<sv.size(); i++){ P.diag.unprotected_bound+=sv(i)*sv(i); }
 }
 
 int BalancedTruncation::core_rank(const Eigen::VectorXd &sigma, const TruncatedSVD &trunc,

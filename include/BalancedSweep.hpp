@@ -20,6 +20,11 @@
         closure_n <- X^T closure_n, env_ops_n.process_forward({P=X^T, Pinv=Y^T}),
      and all past (and reference) states are updated as state <- state Y^T.
      F_{n+1} stays valid since it only depends on elements > n+1.
+  With eta>0 the projector is built from the gauge-invariant blend of the
+  operational and HS Gramians (BalancedGramians); the HS past factor L
+  (Wp_hs = L L^dagger) is propagated through the truncated past, L <- Y L. Diagnostics local_error,
+  tail and amplification refer to the blended objective, E_aug and
+  unprotected_bound to the operational one.
   Closure protection is always on. Cuts with m >= D are left untouched.
 */
 
@@ -27,7 +32,8 @@ namespace ACE{
 
 struct BalancedSweepOptions{
   TruncatedSVD trunc;   //maxk/mink: total bond dimension; threshold: core values
-  double eta;           //gauge-invariant HS blend weight (0: purely operational)
+  double eta;           //gauge-invariant HS blend weight (0: purely operational,
+                        //1: pure HS, protected); tool/parameter default 0.3
   double rtol;          //numerical-rank floor of the core
   int verbosity;        //0: silent, 1: summary, 2: one line per cut
   std::string log_file; //CSV file with per-cut diagnostics ("" = none)
@@ -37,7 +43,7 @@ struct BalancedSweepOptions{
   void setup(Parameters &param);
   void print_info(std::ostream &os=std::cout)const;
 
-  BalancedSweepOptions() : trunc(0., 0), eta(0.),
+  BalancedSweepOptions() : trunc(0., 0), eta(0.3),
      rtol(BalancedTruncation::rtol_default), verbosity(1){}
   BalancedSweepOptions(Parameters &param) : BalancedSweepOptions(){ setup(param); }
 };
