@@ -280,3 +280,20 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   E_aug is evaluated on the final-time training pairs (block structure kept separately).
 - **Benchmarks:** train on a diverse ensemble (mixed initial states/observables); PT inputs
   for 30 modes (local) and 100 modes (HPC), same driver.
+
+### Decisions (2026-10-23): post-v1 scope
+
+- **Mode merges:** balanced truncation only as the *final* sweep of a PT calculation
+  (`balanced_final_sweep true` in `bin/ACE`); intermediate sweeps (mode merges) stay SVD.
+  The balanced sweep is the last truncating operation (no SVD truncation after it).
+  Intermediate sweeps may use a looser `threshold`/`compress_maxk` than the final balanced
+  target (`balanced_maxk`/`balanced_threshold`); the SVD target parameters
+  (`final_sweep_threshold`, `final_sweep_compress_maxk`) are rejected together with
+  `balanced_final_sweep` so the target is never set twice. Benchmark: both arms (SVD final
+  sweep to maxk m vs balanced final sweep to m) with identical intermediate settings.
+- **ALS:** not now (stays v2).
+- **Multiple PTs:** before adding code, check whether `PTB_join` merges two PTs into one
+  PT-MPO that the single-PT balanced path can truncate (then: join first, truncate after).
+- **Phase 6 completion:** report the HS error ||T - T_trunc||_HS / ||T||_HS (dictionary
+  multiplicities, computed on the difference MPO by QR, no cancellation) next to the
+  operational errors; pure-dephasing check against an exact reference.

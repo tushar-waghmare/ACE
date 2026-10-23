@@ -153,4 +153,93 @@ void BalancedGramians::blended_factors(const Eigen::MatrixXcd &A, const Eigen::M
   if(nr>0){ F_b.bottomRows(nr)=std::sqrt(eta/c_ph)*R; }
 }
 
+//one step of the L recursion for slices S_beta (no normalization)
+template <typename SliceFn>
+static Eigen::MatrixXcd forward_slices(const Eigen::MatrixXcd &L, const std::vector<int> &mult,
+                                       int d2, SliceFn S){
+  int n_nz=0; for(int m : mult){ if(m>0)n_nz++; }
+  Eigen::MatrixXcd B(n_nz*L.cols(), d2);
+  int r=0;
+  for(size_t i=0; i<mult.size(); i++){
+    if(mult[i]==0)continue;
+    B.block(r, 0, L.cols(), d2)=std::sqrt((double)mult[i])*(L.adjoint()*S(i).conjugate());
+    r+=L.cols();
+  }
+  return compress_rows(B).adjoint();
+}
+
+static void check_open_ends(ProcessTensorBuffer &PTB, const char *who){
+  int n_tot=PTB.get_n_tot();
+  if(n_tot<1 || PTB.get(0, ForwardPreload).M.dim_d1!=1 || PTB.get(n_tot-1, ForwardPreload).M.dim_d2!=1){
+    std::cerr<<who<<": need n_tot>=1, dim_d1=1 on the first and dim_d2=1 on the last element!"<<std::endl;
+    throw DummyException();
+  }
+}
+
+double BalancedGramians::log_hs_norm(ProcessTensorBuffer &PTB){
+  check_open_ends(PTB, "BalancedGramians::log_hs_norm");
+  Eigen::MatrixXcd L=Eigen::MatrixXcd::Ones(1,1);
+  double lg=0.;
+  for(int n=0; n<PTB.get_n_tot(); n++){
+    L=forward(L, PTB.get(n, ForwardPreload), false);
+    double nrm=L.norm();
+    if(!(nrm>0.))return -INFINITY;
+    lg+=std::log(nrm);
+    L/=nrm;
+  }
+  return lg;
+}
+
+HSDistance BalancedGramians::hs_distance(ProcessTensorBuffer &PTB1, ProcessTensorBuffer &PTB2){
+  check_open_ends(PTB1, "BalancedGramians::hs_distance");
+  check_open_ends(PTB2, "BalancedGramians::hs_distance");
+  int n_tot=PTB1.get_n_tot();
+  if(PTB2.get_n_tot()!=n_tot){
+    std::cerr<<"BalancedGramians::hs_distance: n_tot differs ("<<n_tot<<" vs. "<<PTB2.get_n_tot()<<")!"<<std::endl;
+    throw DummyException();
+  }
+  HSDistance ret;
+  ret.log_norm1=log_hs_norm(PTB1);
+  ret.log_norm2=log_hs_norm(PTB2);
+
+  Eigen::MatrixXcd L=Eigen::MatrixXcd::Ones(1,1);
+  double lg=0.;
+  for(int n=0; n<n_tot; n++){
+    //copies: 'get' on one buffer must not invalidate the other element
+    ProcessTensorElement e1=PTB1.get(n, ForwardPreload);
+    const ProcessTensorElement &e2=PTB2.get(n, ForwardPreload);
+    if(e1.accessor.dict!=e2.accessor.dict || e1.M.dim_i!=e2.M.dim_i){
+      std::cerr<<"BalancedGramians::hs_distance: dictionaries differ at element "<<n<<"!"<<std::endl;
+      throw DummyException();
+    }
+    int a1=e1.M.dim_d1, a2=e1.M.dim_d2, b1=e2.M.dim_d1, b2=e2.M.dim_d2;
+    bool first=(n==0), last=(n==n_tot-1);
+    int d1 = first ? 1 : a1+b1;
+    int d2 = last ? 1 : a2+b2;
+    auto S=[&](int i)->Eigen::MatrixXcd{
+      Eigen::MatrixXcd D=Eigen::MatrixXcd::Zero(d1, d2);
+      if(first && last){
+        D=slice(e1.M, i)-slice(e2.M, i);
+      }else if(first){
+        D.leftCols(a2)=slice(e1.M, i);
+        D.rightCols(b2)=-slice(e2.M, i);
+      }else if(last){
+        D.topRows(a1)=slice(e1.M, i);
+        D.bottomRows(b1)=slice(e2.M, i);
+      }else{
+        D.topLeftCorner(a1, a2)=slice(e1.M, i);
+        D.bottomRightCorner(b1, b2)=slice(e2.M, i);
+      }
+      return D;
+    };
+    L=forward_slices(L, multiplicities(e1), d2, S);
+    double nrm=L.norm();
+    if(!(nrm>0.)){ ret.log_dist=-INFINITY; return ret; }
+    lg+=std::log(nrm);
+    L/=nrm;
+  }
+  ret.log_dist=lg;
+  return ret;
+}
+
 }//namespace

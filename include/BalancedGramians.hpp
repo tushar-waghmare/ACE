@@ -4,6 +4,7 @@
 #include "ProcessTensorBuffer.hpp"
 #include <Eigen/Dense>
 #include <vector>
+#include <cmath>
 
 /*
   Hilbert-Schmidt (flat) Gramians of a bare PT-MPO and the gauge-invariant
@@ -39,6 +40,12 @@
 
 namespace ACE{
 
+//HS norms and distance of two PT-MPOs (natural logarithms: ||PT||_HS grows exponentially)
+struct HSDistance{
+  double log_norm1, log_norm2, log_dist;
+  inline double relative()const{ return std::exp(log_dist-log_norm1); }
+};
+
 class BalancedGramians{
 public:
   //square-root factors R_n (Wf_hs = R^dagger R) for all cuts n=0..n_tot-1
@@ -57,6 +64,16 @@ public:
   //initial L (1x1, the environment state is absorbed in e_0) and final R = q^T
   static Eigen::MatrixXcd initial_L(const ProcessTensorElement &e0);
   static Eigen::MatrixXcd final_R(const ProcessTensorElement &e_last);
+
+  //log ||PT||_HS (dictionary multiplicities) by the forward recursion of L
+  static double log_hs_norm(ProcessTensorBuffer &PTB);
+
+  //||PT1 - PT2||_HS from the difference MPO
+  //  first: [M1, -M2], middle: diag(M1, M2), last: [M1; M2]
+  //orthogonalized by the same QR recursion (no cancellation between
+  //||PT1||^2 + ||PT2||^2 - 2 Re <PT1, PT2>). Both PTs need the same time
+  //grid and dictionaries, d1=1 on the first and d2=1 on the last element.
+  static HSDistance hs_distance(ProcessTensorBuffer &PTB1, ProcessTensorBuffer &PTB2);
 
   //backward pass -> Rf
   void compute_future(ProcessTensorBuffer &PTB, bool normalize=true);

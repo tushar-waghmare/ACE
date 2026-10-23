@@ -10,6 +10,10 @@ Writes (PNG + PDF):
   trace_preservation.*     max |tr rho_S(t) - tr_ref(t)| vs maxk (closure protection)
   improvement.*            rms_trace(plain ACE) / rms_trace(balanced, eta=0.3), all PTs
   amplification.*          max ||X|| ||Y|| over cuts vs maxk (oblique amplification)
+  hs_error.*               ||T - T_trunc||_HS / ||T||_HS vs maxk (hs_errors.csv)
+  tradeoff.*               held-out observable error vs HS error (one point per maxk)
+  dephasing_exact.*        pure dephasing: error vs the exact solution (exact_errors.csv),
+                           with the input PT's own error as reference lines
 """
 import argparse
 import csv
@@ -145,6 +149,100 @@ def fig_amplification(out):
     ps.save(fig, os.path.join(out, 'amplification'))
 
 
+def load_csv(pt, family, name):
+    path = os.path.join(RES, f'{pt}_{family}', name)
+    return list(csv.DictReader(open(path))) if os.path.exists(path) else None
+
+
+def method_key(r):
+    return 'svd' if r['method'] == 'svd' else f"eta={float(r['eta']):g}"
+
+
+def hs_series(rows, key):
+    by = defaultdict(list)
+    for r in rows:
+        if method_key(r) == key:
+            by[int(r['maxk'])].append(float(r['hs_rel']))
+    ks = sorted(by)
+    return ks, [ps.gmean(by[k]) for k in ks], [min(by[k]) for k in ks], [max(by[k]) for k in ks]
+
+
+def fig_hs(out):
+    fig, axes = plt.subplots(1, 3, figsize=(9.6, 3.1), sharey=True, layout='constrained')
+    for ax, fam in zip(axes, FAMILIES):
+        rows = load_csv('bench100', fam, 'hs_errors.csv')
+        for key, label, style in ps.METHODS:
+            ks, g, lo, hi = hs_series(rows, key)
+            ax.plot(ks, g, label=label, **style)
+            ax.fill_between(ks, lo, hi, color=style['color'], alpha=0.12, lw=0)
+        ax.set_yscale('log')
+        ax.set_xticks([4, 8, 12, 16, 24])
+        ax.set_title(FAMILY_LABEL[fam])
+        ax.set_xlabel('max. bond dimension (maxk)')
+    axes[0].set_ylabel('‖T − T_trunc‖_HS / ‖T‖_HS')
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc='outside lower center', ncol=4)
+    fig.suptitle('Hilbert–Schmidt error of the truncated PT, 100-mode PT '
+                 '(training contexts differ per family; plain ACE is context-free)', fontsize=10.5)
+    ps.save(fig, os.path.join(out, 'hs_error'))
+
+
+def fig_tradeoff(out):
+    fig, axes = plt.subplots(1, 3, figsize=(9.6, 3.3), layout='constrained')
+    for ax, fam in zip(axes, FAMILIES):
+        hs = load_csv('bench100', fam, 'hs_errors.csv')
+        data = load('bench100', fam)
+        for key, label, style in ps.METHODS:
+            ks, hg, _, _ = hs_series(hs, key)
+            _, og, _, _ = series(data, 'test', key, 'rms_trace')
+            ax.plot(hg, og, label=label, **style)
+            for k, x, y in zip(ks, hg, og):
+                if key == 'svd' and k in (4, 24):
+                    ax.annotate(f'maxk {k}', (x, y), textcoords='offset points', xytext=(4, 4),
+                                fontsize=7, color=ps.INK2)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_title(FAMILY_LABEL[fam])
+        ax.set_xlabel('HS error ‖T − T_trunc‖ / ‖T‖')
+    axes[0].set_ylabel('held-out RMS error of ⟨O⟩(t)')
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc='outside lower center', ncol=4)
+    fig.suptitle('Operational vs HS error (100-mode PT; each line runs over maxk 4–24, '
+                 'lower left is better)', fontsize=10.5)
+    ps.save(fig, os.path.join(out, 'tradeoff'))
+
+
+def fig_dephasing_exact(out):
+    pts = [('bench30_thr1e-6', '30 modes (thr 1e-6)'), ('bench100', '100 modes (thr 5e-8)')]
+    fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.3), sharey=True, layout='constrained')
+    for ax, (pt, ptlabel) in zip(axes, pts):
+        rows = [r for r in load_csv(pt, 'dephasing', 'exact_errors.csv') if r['set'] == 'test']
+        def ser(key, M):
+            by = defaultdict(list)
+            for r in rows:
+                if int(r['M']) == M and r['method'] != 'input' and method_key(r) == key:
+                    by[int(r['maxk'])].append(float(r['rms_trace_exact']))
+            ks = sorted(by)
+            return ks, [ps.gmean(by[k]) for k in ks]
+        for key, label, style in ps.METHODS:
+            ks, g = ser(key, 3)
+            ax.plot(ks, g, label=label, **style)
+        for M, ls, txt in ((3, ':', 'input PT vs exact (same model, M=3)'),
+                           (20, '-.', 'input PT vs exact (M=20 Fock levels)')):
+            v = ps.gmean([float(r['rms_trace_exact']) for r in rows if r['method'] == 'input' and int(r['M']) == M])
+            ax.axhline(v, color=ps.INK2, lw=1.0, ls=ls, label=txt)
+        ax.set_yscale('log')
+        ax.set_xticks([4, 8, 12, 16, 24])
+        ax.set_title(ptlabel)
+        ax.set_xlabel('max. bond dimension (maxk)')
+    axes[0].set_ylabel('held-out RMS error of ρ₁₀(t)\nvs exact solution (M=3)')
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc='outside lower center', ncol=3)
+    fig.suptitle('Pure dephasing against the exact independent-boson solution '
+                 '(same discretized modes as the PT)', fontsize=10.5)
+    ps.save(fig, os.path.join(out, 'dephasing_exact'))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--outdir', default=os.path.join(HERE, 'plots', 'accuracy'))
@@ -156,6 +254,9 @@ def main():
     fig_trace(a.outdir)
     fig_improvement(a.outdir)
     fig_amplification(a.outdir)
+    fig_hs(a.outdir)
+    fig_tradeoff(a.outdir)
+    fig_dephasing_exact(a.outdir)
     print(f'wrote figures to {a.outdir}')
 
 

@@ -41,3 +41,16 @@ python3 benchmarks/balanced/profile_timing.py --outdir benchmarks/balanced/resul
 `profile_timing.py` uses `PTB_balanced_truncate -balanced_timing <file.csv>` (wall-clock seconds per
 phase: contexts, read_PT, setup, future, hs_future, past, factors, noise_floor, core_svd, proj_diag,
 diagnostics, apply, write_PT, total). Plots go to `plots/<topic>/` (PNG + PDF): `plots/accuracy/`, `plots/timing/`; new plot scripts add their own subfolder.
+
+## HS errors and exact pure-dephasing reference
+
+```
+python3 benchmarks/balanced/hs_errors.py --jobs 8              # <dir>/hs_errors.csv (regenerates truncated PTs)
+~/.venvs/ace/bin/python benchmarks/balanced/exact_dephasing.py # <dir>/exact_errors.csv for bench*_dephasing
+```
+
+`tools/PTB_HS_distance -read_PT A -compare_PT B` prints ||A - B||_HS / ||A||_HS (dictionary multiplicities,
+difference MPO orthogonalized by QR: no cancellation). New `run_benchmark.py` runs record it as `hs_rel`.
+`exact_dephasing.py`: independent boson model on the same discretized modes as the PT (from
+`Boson_print_E_g`), Fock cutoff M=3 (the Hamiltonian the PT represents) and M=20; validated against a
+6-mode PT built with threshold 1e-10 (max deviation 3.4e-7 for M=3).

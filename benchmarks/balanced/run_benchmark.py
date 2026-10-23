@@ -22,7 +22,7 @@ diagnostics balanced_<maxk>_<eta>.csv, the generated context files.
 Metrics per row: rms_final (RMS over contexts of the final-time observable error),
 rms_trace (RMS over contexts and times of the observable time trace error),
 max_trace_err (max |tr rho_S(t) - 1|), max_population_drift (max |rho_11(t) - rho_11(0)|,
-exactly 0 for pure dephasing), maxdim, runtime_s, and for balanced runs
+exactly 0 for pure dephasing), maxdim, hs_rel (||T - T_trunc||_HS / ||T||_HS), runtime_s, and for balanced runs
 max/median ||X||*||Y|| and the sum of local operational errors.
 """
 import argparse
@@ -135,6 +135,12 @@ def maxdim_of(pt):
         if line.startswith('Maxdim'):
             return int(line.split()[1])
     return -1
+
+
+def hs_rel(pt_in, pt):
+    """||T_in - T||_HS / ||T_in||_HS (dictionary multiplicities)"""
+    _, out = run([os.path.join(TOOLS, 'PTB_HS_distance'), '-read_PT', pt_in, '-compare_PT', pt])
+    return float(next(l.split()[1] for l in out.splitlines() if l.startswith('relative')))
 
 
 def errors(results, reference, names):
@@ -252,12 +258,13 @@ def run_seed(a, seed, out):
     def record(method, maxk, eta, pt, runtime, stats=(None, None, None)):
         res = evaluate(pt, os.path.basename(pt))
         md = maxdim_of(pt)
+        hs = hs_rel(pt_in, pt)
         for split in ('train', 'test', 'ood'):
             rf, rt, te_, dr = errors(res, reference, names[split])
             rows.append(dict(family=a.family, seed=seed, readout_stride=a.readout_stride, rhat=a.rhat,
                              method=method, maxk=maxk, eta='' if eta is None else eta, set=split,
                              rms_final=rf, rms_trace=rt, max_trace_err=te_, max_population_drift=dr,
-                             maxdim=md, runtime_s=runtime,
+                             maxdim=md, hs_rel=hs, runtime_s=runtime,
                              max_amplification='' if stats[0] is None else stats[0],
                              median_amplification='' if stats[1] is None else stats[1],
                              sum_local_error='' if stats[2] is None else stats[2]))
