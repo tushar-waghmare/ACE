@@ -79,7 +79,10 @@ struct BalancedProjector{
   Eigen::MatrixXcd Y;        //m x D
   Eigen::VectorXd sigma;     //all singular values of the core K
   BalancedTruncationDiagnostics diag;
+  double t_noise, t_core, t_diag;  //wall-clock seconds: noise floor ||F|| ||A||,
+                                   //core SVD and X, Y, norms/bounds in finish_diagnostics
 
+  BalancedProjector() : t_noise(0.), t_core(0.), t_diag(0.){}
   inline Eigen::MatrixXcd get_Pi()const{ return X*Y; }
 };
 

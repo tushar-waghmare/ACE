@@ -29,3 +29,15 @@ Settings can be overridden through environment variables (`SEEDS`, `MAXK`, `ETA`
 
 `results/pilot_*.csv` are **pilot** runs on `smoke.pt` (8 train, 16 test, 16 ood contexts, seed 1,
 maxk 4/6/8/12, eta 0/0.3/1, rhat tw, final-time readouts only).
+
+## Figures and runtime profile
+
+```
+python3 benchmarks/balanced/profile_timing.py --outdir benchmarks/balanced/results/timing   # ~15 min, sequential
+~/.venvs/ace/bin/python benchmarks/balanced/plot_accuracy.py   # needs matplotlib
+~/.venvs/ace/bin/python benchmarks/balanced/plot_timing.py
+```
+
+`profile_timing.py` uses `PTB_balanced_truncate -balanced_timing <file.csv>` (wall-clock seconds per
+phase: contexts, read_PT, setup, future, hs_future, past, factors, noise_floor, core_svd, proj_diag,
+diagnostics, apply, write_PT, total). Plots go to `plots/<topic>/` (PNG + PDF): `plots/accuracy/`, `plots/timing/`; new plot scripts add their own subfolder.

@@ -1,11 +1,16 @@
 #include "BalancedTruncation.hpp"
 #include "DummyException.hpp"
+#include "Timings.hpp"
 #include <cmath>
 
 namespace ACE{
 
 constexpr double BalancedTruncation::rtol_default;
 constexpr double BalancedTruncation::s_tol_default;
+
+static double seconds_since(const time_point &t0){
+  return std::chrono::duration<double>(now()-t0).count();
+}
 
 void BalancedTruncationDiagnostics::print(std::ostream &os)const{
   if(cut>=0){ os<<"cut "<<cut<<": "; }
@@ -101,6 +106,7 @@ void BalancedTruncation::core(BalancedProjector &ret,
       const TruncatedSVD &trunc, int n_protected, double rtol, double noise_scale,
       Eigen::MatrixXcd &Xr, Eigen::MatrixXcd &Yr){
 
+  time_point t0=now();
   Eigen::MatrixXcd K=Fp*Ap;
   Eigen::JacobiSVD<Eigen::MatrixXcd> svd(K, Eigen::ComputeThinU | Eigen::ComputeThinV);
   ret.sigma=svd.singularValues();
@@ -120,10 +126,12 @@ void BalancedTruncation::core(BalancedProjector &ret,
   for(int i=0; i<r; i++){ isq(i)=1./std::sqrt(ret.sigma(i)); }
   Xr=Ap*(svd.matrixV().leftCols(r)*isq.asDiagonal());
   Yr=isq.asDiagonal()*(svd.matrixU().leftCols(r).adjoint()*Fp);
+  ret.t_core+=seconds_since(t0);
 }
 
 void BalancedTruncation::finish_diagnostics(BalancedProjector &ret,
                               const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F){
+  time_point t0=now();
   ret.diag.D=ret.X.rows();
   ret.diag.m=ret.X.cols();
   ret.diag.no_truncation=(ret.diag.m>=ret.diag.D);
@@ -143,6 +151,7 @@ void BalancedTruncation::finish_diagnostics(BalancedProjector &ret,
   }else{
     ret.diag.YX_error=0.;
   }
+  ret.t_diag+=seconds_since(t0);
 }
 
 BalancedProjector BalancedTruncation::protected_projector(
@@ -173,7 +182,10 @@ BalancedProjector BalancedTruncation::protected_projector(
   Eigen::MatrixXcd Fp=F-(F*rs)*q.transpose();
 
   Eigen::MatrixXcd Xr, Yr;
-  core(ret, Ap, Fp, trunc, 1, rtol, norm2(F)*norm2(A), Xr, Yr);
+  time_point t0=now();
+  double noise_scale=norm2(F)*norm2(A);
+  ret.t_noise=seconds_since(t0);
+  core(ret, Ap, Fp, trunc, 1, rtol, noise_scale, Xr, Yr);
   int r=ret.diag.r;
 
   ret.X.resize(D, r+1);

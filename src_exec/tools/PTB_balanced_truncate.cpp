@@ -2,6 +2,8 @@
 #include "Parameters.hpp"
 #include "BalancedSweep.hpp"
 #include "DummyException.hpp"
+#include "Timings.hpp"
+#include <fstream>
 
 /*
   Protected operational balanced truncation of a PT-MPO (final sweep).
@@ -24,14 +26,20 @@
     balanced_readout_stride  future readouts every n steps + final time (default 5;
                          0: final time only)
     balanced_log         CSV file with per-cut diagnostics
+    balanced_timing      CSV file with the wall-clock time per phase (phase,seconds)
     buffer_blocksize     block size of the output PT (default: single file)
     verbosity            0, 1 (default), 2 (one line per cut)
 */
 
 using namespace ACE;
 
+static double seconds_since(const time_point &t0){
+  return std::chrono::duration<double>(now()-t0).count();
+}
+
 int main(int args, char** argv){
  try{
+  time_point t_start=now(), tp=now();
   Parameters param(args, argv, true);
 
   std::string read_PT = param.get_as_string_check("read_PT");
@@ -48,18 +56,46 @@ int main(int args, char** argv){
     std::cerr<<"Please specify at least one 'add_balanced_context'!"<<std::endl;
     throw DummyException();
   }
+  double t_contexts=seconds_since(tp);
 
-  ProcessTensorBuffer PTB_in(read_PT, true);
-  if(PTB_in.get_n_tot()<1){
-    std::cerr<<"PTB.get_n_tot()="<<PTB_in.get_n_tot()<<"<1!"<<std::endl;
-    throw DummyException();
+  BalancedSweepTimings tm;
+  double t_read=0., t_write=0.;
+  {
+    tp=now();
+    ProcessTensorBuffer PTB_in(read_PT, true);
+    if(PTB_in.get_n_tot()<1){
+      std::cerr<<"PTB.get_n_tot()="<<PTB_in.get_n_tot()<<"<1!"<<std::endl;
+      throw DummyException();
+    }
+
+    ProcessTensorBuffer PTB;
+    PTB.set_new_file(write_PT, buffer_blocksize);
+    PTB.copy_content(PTB_in);
+    t_read=seconds_since(tp);
+
+    PTB.sweep_forward_balanced(contexts, opt, &tm);
+    tp=now();
+  } //PTB is written when it goes out of scope
+  t_write=seconds_since(tp);
+  double t_total=seconds_since(t_start);
+
+  if(opt.timing_file!=""){
+    std::ofstream ofs(opt.timing_file.c_str());
+    if(!ofs){
+      std::cerr<<"Cannot open '"<<opt.timing_file<<"'!"<<std::endl;
+      throw DummyException();
+    }
+    ofs.precision(9);
+    ofs<<"phase,seconds"<<std::endl;
+    ofs<<"contexts,"<<t_contexts<<std::endl;
+    ofs<<"read_PT,"<<t_read<<std::endl;
+    std::vector<double> v=tm.values();
+    for(size_t i=0; i<v.size(); i++){
+      ofs<<BalancedSweepTimings::names[i]<<","<<v[i]<<std::endl;
+    }
+    ofs<<"write_PT,"<<t_write<<std::endl;
+    ofs<<"total,"<<t_total<<std::endl;
   }
-
-  ProcessTensorBuffer PTB;
-  PTB.set_new_file(write_PT, buffer_blocksize);
-  PTB.copy_content(PTB_in);
-
-  PTB.sweep_forward_balanced(contexts, opt);
 
  }catch (DummyException &e){
   return 1;

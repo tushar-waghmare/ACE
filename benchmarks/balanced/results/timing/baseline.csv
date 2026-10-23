@@ -1,0 +1,58 @@
+pt,method,maxk,what,seconds
+30 modes,input PT,,simulate,0.021913499999982378
+30 modes,svd,4,truncate,0.1666852910000216
+30 modes,svd,4,simulate,0.02353841699999748
+30 modes,balanced,4,simulate,0.019532207999986895
+30 modes,svd,8,truncate,0.2385018340000329
+30 modes,svd,8,simulate,0.02300074999999424
+30 modes,balanced,8,simulate,0.019247708000023067
+30 modes,svd,12,truncate,0.2718617909999921
+30 modes,svd,12,simulate,0.02250883299996076
+30 modes,balanced,12,simulate,0.020761250000020937
+30 modes,svd,16,truncate,0.2964180830000487
+30 modes,svd,16,simulate,0.022317833999977665
+30 modes,balanced,16,simulate,0.019155374999968444
+30 modes,svd,24,truncate,0.3421135829999571
+30 modes,svd,24,simulate,0.02393254200001138
+30 modes,balanced,24,simulate,0.020793667000020832
+30 modes,svd,32,truncate,0.3814159590000372
+30 modes,svd,32,simulate,0.0270092079999813
+30 modes,balanced,32,simulate,0.014226416000042263
+30 modes (tight),input PT,,simulate,0.024655332999998336
+30 modes (tight),svd,4,truncate,0.40433083300001726
+30 modes (tight),svd,4,simulate,0.02543304200003149
+30 modes (tight),balanced,4,simulate,0.0182829160000324
+30 modes (tight),svd,8,truncate,0.5006487079999715
+30 modes (tight),svd,8,simulate,0.026414374999944812
+30 modes (tight),balanced,8,simulate,0.018691665999995166
+30 modes (tight),svd,12,truncate,0.6794301250000103
+30 modes (tight),svd,12,simulate,0.022950500000035845
+30 modes (tight),balanced,12,simulate,0.020901749999950425
+30 modes (tight),svd,16,truncate,0.7215787489999457
+30 modes (tight),svd,16,simulate,0.023057541000014226
+30 modes (tight),balanced,16,simulate,0.022168792000002213
+30 modes (tight),svd,24,truncate,0.8269101659999478
+30 modes (tight),svd,24,simulate,0.024951332999989972
+30 modes (tight),balanced,24,simulate,0.020858208999982253
+30 modes (tight),svd,32,truncate,0.9085416670000086
+30 modes (tight),svd,32,simulate,0.028308291999962876
+30 modes (tight),balanced,32,simulate,0.02138270900002226
+100 modes,input PT,,simulate,0.03287625000001526
+100 modes,svd,4,truncate,0.6374963330000014
+100 modes,svd,4,simulate,0.027072666999970352
+100 modes,balanced,4,simulate,0.01891966699997738
+100 modes,svd,8,truncate,0.7412601240000072
+100 modes,svd,8,simulate,0.025323417000038262
+100 modes,balanced,8,simulate,0.018985874999998487
+100 modes,svd,12,truncate,0.9584870830000227
+100 modes,svd,12,simulate,0.02304741699998658
+100 modes,balanced,12,simulate,0.019365708999998787
+100 modes,svd,16,truncate,1.1180692910000403
+100 modes,svd,16,simulate,0.023606874999984484
+100 modes,balanced,16,simulate,0.022807458000045244
+100 modes,svd,24,truncate,1.2664099999999507
+100 modes,svd,24,simulate,0.02724620800000821
+100 modes,balanced,24,simulate,0.022070750000011685
+100 modes,svd,32,truncate,1.404514708000022
+100 modes,svd,32,simulate,0.025424375000000055
+100 modes,balanced,32,simulate,0.020614833000024646

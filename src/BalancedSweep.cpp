@@ -6,6 +6,13 @@
 
 namespace ACE{
 
+const char *BalancedSweepTimings::names[]={"setup", "future", "hs_future", "past",
+       "factors", "noise_floor", "core_svd", "proj_diag", "diagnostics", "apply"};
+
+static double seconds_since(const time_point &t0){
+  return std::chrono::duration<double>(now()-t0).count();
+}
+
 void BalancedSweepOptions::setup(Parameters &param){
   trunc=TruncatedSVD(param.get_as_double("balanced_threshold", 0.),
                      param.get_as_int("balanced_maxk", 0),
@@ -15,6 +22,7 @@ void BalancedSweepOptions::setup(Parameters &param){
   readout_stride=param.get_as_int("balanced_readout_stride", 5);
   verbosity=param.get_as_int("verbosity", 1);
   log_file=param.get_as_string("balanced_log", "");
+  timing_file=param.get_as_string("balanced_timing", "");
   if(trunc.threshold<0. || trunc.maxk<0 || trunc.mink<0 || !(rtol>=0.) || readout_stride<0){
     std::cerr<<"BalancedSweepOptions: balanced_threshold, balanced_maxk, balanced_mink, balanced_rtol, balanced_readout_stride must be non-negative!"<<std::endl;
     throw DummyException();
@@ -65,9 +73,11 @@ void BalancedSweep::apply_projector(ProcessTensorBuffer &PTB, int n,
 
 std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
       ProcessTensorBuffer &PTB, BalancedContexts &contexts,
-      const BalancedSweepOptions &opt){
+      const BalancedSweepOptions &opt, BalancedSweepTimings *timings){
 
   time_point time1=now();
+  BalancedSweepTimings tm;
+  time_point tp=now();
   if(PTB.read_only){
     std::cerr<<"BalancedSweep::sweep_forward: PT is read-only!"<<std::endl;
     throw DummyException();
@@ -87,10 +97,14 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
   }
   contexts.tabulate_steps(n_tot);
   if(opt.verbosity>0){ contexts.print_info(); opt.print_info(); }
+  tm.setup+=seconds_since(tp);
 
   //1. future factors on the untruncated PT
+  tp=now();
   BalancedFactors factors;
   factors.compute_future_factors(PTB, contexts, opt.verbosity, opt.readout_stride);
+  tm.future+=seconds_since(tp);
+  tp=now();
   //HS Gramians for the blend: future on the untruncated PT, past through the truncated one
   bool use_blend=(opt.eta>0.);
   BalancedGramians gramians;
@@ -99,6 +113,7 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
     gramians.compute_future(PTB, true);
     L_hs=BalancedGramians::initial_L(PTB.get(0, ForwardPreload));
   }
+  tm.hs_future+=seconds_since(tp);
 
   //2. forward pass
   std::vector<double> w=contexts.normalized_weights();
@@ -124,12 +139,15 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
   for(int n=0; n<n_tot-1; n++){
     BalancedProjector P;
     {
+      tp=now();
       ProcessTensorElement &e=PTB.get(n, ForwardPreload);
       for(size_t a=0; a<contexts.size(); a++){
         BalancedFactors::step_forward(states[a], e, contexts[a], n);
       }
       if(use_ref){ BalancedFactors::step_forward(ref_state, e, contexts.rhat_context, n); }
       if(use_blend){ L_hs=BalancedGramians::forward(L_hs, e, true); }
+      tm.past+=seconds_since(tp);
+      tp=now();
 
       const Eigen::MatrixXcd &F=factors.get_F(n);
       if(F.cols()!=e.M.dim_d2 || states[0].cols()!=e.M.dim_d2){
@@ -148,19 +166,27 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
       }else{
         P=BalancedTruncation::protected_projector(A, F, e.closure, rhat, opt.trunc, opt.rtol);
       }
+      tm.noise_floor+=P.t_noise;
+      tm.core_svd+=P.t_core;
+      tm.proj_diag+=P.t_diag;
+      tm.factors+=seconds_since(tp)-P.t_noise-P.t_core-P.t_diag;
       //E_aug (final-time training pairs) and the unprotected bound always refer
       //to the operational factors
+      tp=now();
       BalancedTruncation::set_training_diagnostics(P, A, factors.get_F_pairs(n), NL, &F);
+      tm.diagnostics+=seconds_since(tp);
     }
     P.diag.cut=n;
     if(P.diag.D>maxdim_in)maxdim_in=P.diag.D;
 
     if(!P.diag.no_truncation){
+      tp=now();
       apply_projector(PTB, n, P.X, P.Y);
       Eigen::MatrixXcd Yt=P.Y.transpose();
       for(Eigen::MatrixXcd &st : states){ st=st*Yt; }
       if(use_ref){ ref_state=ref_state*Yt; }
       if(use_blend){ L_hs=P.Y*L_hs; }
+      tm.apply+=seconds_since(tp);
     }
     int D_out = P.diag.no_truncation ? P.diag.D : P.diag.m;
     if(D_out>maxdim_out)maxdim_out=D_out;
@@ -174,7 +200,13 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
     diags.push_back(P.diag);
   }
 
+  tm.total=seconds_since(time1);
+  if(timings)*timings=tm;
   if(opt.verbosity>0){
+    std::cout<<"Balanced sweep timings [s]:";
+    std::vector<double> v=tm.values();
+    for(size_t i=0; i<v.size(); i++){ std::cout<<" "<<BalancedSweepTimings::names[i]<<"="<<v[i]; }
+    std::cout<<" total="<<tm.total<<std::endl;
     std::cout<<"Balanced sweep: maxdim "<<maxdim_in<<" -> "<<maxdim_out
              <<", sum of local errors "<<sum_local
              <<", max ||X||*||Y|| "<<max_amp<<", max |YX-I| "<<max_YX
@@ -185,8 +217,9 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
 }
 
 std::vector<BalancedTruncationDiagnostics> ProcessTensorBuffer::sweep_forward_balanced(
-                     BalancedContexts &contexts, const BalancedSweepOptions &opt){
-  return BalancedSweep::sweep_forward(*this, contexts, opt);
+                     BalancedContexts &contexts, const BalancedSweepOptions &opt,
+                     BalancedSweepTimings *timings){
+  return BalancedSweep::sweep_forward(*this, contexts, opt, timings);
 }
 
 }//namespace
