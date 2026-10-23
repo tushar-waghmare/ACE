@@ -37,7 +37,9 @@ void BalancedTruncationDiagnostics::print_csv(std::ostream &os)const{
 
 double BalancedTruncation::norm2(const Eigen::MatrixXcd &M){
   if(M.size()<1)return 0.;
-  Eigen::JacobiSVD<Eigen::MatrixXcd> svd(M);
+  //diagnostics only (X, Y come from the JacobiSVD of the core); BDCSVD falls
+  //back to JacobiSVD for small matrices and is much faster for large ones
+  Eigen::BDCSVD<Eigen::MatrixXcd> svd(M);
   return svd.singularValues()(0);
 }
 
@@ -70,7 +72,7 @@ void BalancedTruncation::set_training_diagnostics(BalancedProjector &P,
                               const Eigen::MatrixXcd *F_objective){
   P.diag.E_aug=augmented_error(A, F_pairs, P.X, P.Y, NL);
   const Eigen::MatrixXcd &F = F_objective ? *F_objective : F_pairs;
-  Eigen::JacobiSVD<Eigen::MatrixXcd> svd(F*A);
+  Eigen::BDCSVD<Eigen::MatrixXcd> svd(F*A);
   const Eigen::VectorXd &sv=svd.singularValues();
   P.diag.unprotected_bound=0.;
   for(int i=P.diag.m; i<sv.size(); i++){ P.diag.unprotected_bound+=sv(i)*sv(i); }
@@ -129,6 +131,17 @@ void BalancedTruncation::core(BalancedProjector &ret,
   ret.t_core+=seconds_since(t0);
 }
 
+double BalancedTruncation::Pi_norm(const Eigen::MatrixXcd &X, const Eigen::MatrixXcd &Y){
+  //||X Y||_2 = ||R_X R_Y^dagger||_2 with X = Q_X R_X, Y^dagger = Q_Y R_Y (m x m instead of D x D)
+  int m=X.cols();
+  if(m<1 || X.rows()<1)return 0.;
+  if(m>=X.rows())return norm2(X*Y);
+  Eigen::HouseholderQR<Eigen::MatrixXcd> qx(X), qy(Y.adjoint());
+  Eigen::MatrixXcd Rx=qx.matrixQR().topRows(m).triangularView<Eigen::Upper>();
+  Eigen::MatrixXcd Ry=qy.matrixQR().topRows(m).triangularView<Eigen::Upper>();
+  return norm2(Rx*Ry.adjoint());
+}
+
 void BalancedTruncation::finish_diagnostics(BalancedProjector &ret,
                               const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F){
   time_point t0=now();
@@ -136,10 +149,10 @@ void BalancedTruncation::finish_diagnostics(BalancedProjector &ret,
   ret.diag.m=ret.X.cols();
   ret.diag.no_truncation=(ret.diag.m>=ret.diag.D);
   ret.diag.amplification=norm2(ret.X)*norm2(ret.Y);
-  ret.diag.Pi_norm=norm2(ret.X*ret.Y);
+  ret.diag.Pi_norm=Pi_norm(ret.X, ret.Y);
 
   //best unprotected error at the same total bond dimension m
-  Eigen::JacobiSVD<Eigen::MatrixXcd> svd(F*A);
+  Eigen::BDCSVD<Eigen::MatrixXcd> svd(F*A);
   const Eigen::VectorXd &sv=svd.singularValues();
   ret.diag.unprotected_bound=0.;
   for(int i=ret.diag.m; i<sv.size(); i++){

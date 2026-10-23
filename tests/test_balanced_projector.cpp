@@ -224,8 +224,21 @@ static void ACE_PT_tests(){
   }
 }
 
+//||X Y||_2 from QR factors == dense JacobiSVD of X Y (oblique X, Y; m < D and m >= D)
+static void Pi_norm_tests(){
+  std::mt19937 rng(11);
+  for(int m : {1, 3, 7, 12}){
+    int D=10;
+    Eigen::MatrixXcd X=random_matrix(D, m, rng), Y=random_matrix(m, D, rng);
+    Eigen::JacobiSVD<Eigen::MatrixXcd> svd(X*Y);
+    double dev=rel_dev(BalancedTruncation::Pi_norm(X, Y), svd.singularValues()(0));
+    check(dev<1e-13, "Pi_norm (QR) == ||XY||_2 for D=10, m="+std::to_string(m)+": rel. dev "+sci(dev));
+  }
+}
+
 int main(){
  try{
+  Pi_norm_tests();
   reference_tests();
   ACE_PT_tests();
  }catch(DummyException &e){

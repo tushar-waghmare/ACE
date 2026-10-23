@@ -74,6 +74,32 @@ struct BalancedSweepTimings{
     apply(0.), total(0.){}
 };
 
+/*
+  Balanced final sweep of a PT calculation in bin/ACE ('balanced_final_sweep true').
+  The balanced sweep is the last truncating operation: the calculation itself
+  (mode merges, intermediate and final SVD sweeps) runs with 'threshold'/
+  'compress_maxk' (may be looser than the balanced target), then the balanced
+  sweep truncates to 'balanced_maxk'/'balanced_threshold'. The SVD final target
+  ('final_sweep_threshold', 'final_sweep_compress_maxk') must not be set as well.
+  setup() checks everything that can be checked before the (expensive)
+  calculation: options, contexts, and that the contexts' time grids match the
+  PT time grid.
+*/
+class BalancedFinalSweep{
+public:
+  bool active;
+  BalancedSweepOptions opt;
+  BalancedContexts contexts;
+
+  //reads 'balanced_final_sweep' (default false); if true: options, contexts, checks
+  void setup(Parameters &param, const TimeGrid &tgrid);
+  //on the finished PT (closures are calculated if missing)
+  std::vector<BalancedTruncationDiagnostics> run(ProcessTensorBuffer &PTB,
+                                                 BalancedSweepTimings *timings=nullptr);
+
+  BalancedFinalSweep() : active(false){}
+};
+
 class BalancedSweep{
 public:
   //Modifies PTB in place (PTB must not be read-only). Returns per-cut diagnostics.

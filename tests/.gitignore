@@ -3,3 +3,6 @@ data/*.pt*
 data/*.out
 data/_tmp_*
 data/*.csv
+data/fs_*.param
+data/fs_*.log
+data/mj_*

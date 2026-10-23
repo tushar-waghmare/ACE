@@ -138,6 +138,8 @@ public:
 
   //largest singular value
   static double norm2(const Eigen::MatrixXcd &M);
+  //||X Y||_2 from the QR factors of X and Y^dagger (exact; m x m instead of D x D)
+  static double Pi_norm(const Eigen::MatrixXcd &X, const Eigen::MatrixXcd &Y);
 
 private:
   //common part: SVD of K = Fp Ap, rank selection, square-root factors

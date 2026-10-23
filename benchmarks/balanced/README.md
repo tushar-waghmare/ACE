@@ -54,3 +54,19 @@ difference MPO orthogonalized by QR: no cancellation). New `run_benchmark.py` ru
 `exact_dephasing.py`: independent boson model on the same discretized modes as the PT (from
 `Boson_print_E_g`), Fock cutoff M=3 (the Hamiltonian the PT represents) and M=20; validated against a
 6-mode PT built with threshold 1e-10 (max deviation 3.4e-7 for M=3).
+
+## Balanced final sweep in bin/ACE (Phase 7)
+
+```
+# in a PT calculation's parameter file:
+balanced_final_sweep  true
+balanced_maxk         16            # target; 'threshold'/'compress_maxk' apply to the calculation itself
+balanced_eta          0.3
+add_balanced_context  ctx1.param    # repeat; same time grid as the calculation
+
+~/.venvs/ace/bin/python benchmarks/balanced/final_sweep_benchmark.py --jobs 9   # 13 builds (~1 h on 10 cores)
+~/.venvs/ace/bin/python benchmarks/balanced/plot_final_sweep.py                 # plots/final_sweep/
+```
+
+Multiple baths: join first (`tools/PTB_join -initial_PT X.pt -add_PT Y.pt -only_join true`, same
+order as `add_PT X add_PT Y`), then truncate the joined PT with `PTB_balanced_truncate`.

@@ -222,4 +222,74 @@ std::vector<BalancedTruncationDiagnostics> ProcessTensorBuffer::sweep_forward_ba
   return BalancedSweep::sweep_forward(*this, contexts, opt, timings);
 }
 
+void BalancedFinalSweep::setup(Parameters &param, const TimeGrid &tgrid){
+  active=param.get_as_bool("balanced_final_sweep", false);
+  if(!active)return;
+  for(const char *key : {"final_sweep_threshold", "final_sweep_compress_maxk"}){
+    if(param.is_specified(key)){
+      std::cerr<<"balanced_final_sweep: '"<<key<<"' sets the target of an SVD final sweep; "
+               <<"with a balanced final sweep the target is 'balanced_maxk'/'balanced_threshold' "
+               <<"(use 'threshold'/'compress_maxk' for the calculation itself)!"<<std::endl;
+      throw DummyException();
+    }
+  }
+  opt.setup(param);
+  contexts.setup(param);
+  if(contexts.size()<1){
+    std::cerr<<"balanced_final_sweep: please specify at least one 'add_balanced_context'!"<<std::endl;
+    throw DummyException();
+  }
+  for(size_t a=0; a<contexts.size(); a++){
+    const TimeGrid &tg=contexts[a].tgrid;
+    if(tg.n_tot<tgrid.n_tot){
+      std::cerr<<"balanced_final_sweep: context '"<<contexts[a].label<<"' has n_tot="<<tg.n_tot
+               <<" < "<<tgrid.n_tot<<" steps of the PT calculation!"<<std::endl;
+      throw DummyException();
+    }
+    for(int n=0; n<tgrid.n_tot; n++){
+      if(std::abs(tg.get_t(n)-tgrid.get_t(n))>1e-10 || std::abs(tg.get_dt(n)-tgrid.get_dt(n))>1e-10){
+        std::cerr<<"balanced_final_sweep: time grid of context '"<<contexts[a].label
+                 <<"' differs from the PT calculation at step "<<n<<"!"<<std::endl;
+        throw DummyException();
+      }
+    }
+  }
+  contexts.tabulate_steps(tgrid.n_tot);
+}
+
+std::vector<BalancedTruncationDiagnostics> BalancedFinalSweep::run(ProcessTensorBuffer &PTB,
+                                                                   BalancedSweepTimings *timings){
+  if(!active){
+    std::cerr<<"BalancedFinalSweep::run: not active!"<<std::endl;
+    throw DummyException();
+  }
+  if(PTB.TTree){
+    std::cerr<<"balanced_final_sweep: not implemented for CompressionTree!"<<std::endl;
+    throw DummyException();
+  }
+  bool have_closures=true;
+  for(int n=0; n<PTB.get_n_tot(); n++){
+    const ProcessTensorElement &e=PTB.get(n, ForwardPreload);
+    if(e.closure.size()!=e.M.dim_d2){ have_closures=false; break; }
+  }
+  if(!have_closures){ PTB.calculate_closures(); }
+  if(opt.verbosity>0){ std::cout<<"Balanced final sweep"<<std::endl; }
+  BalancedSweepTimings tm;
+  std::vector<BalancedTruncationDiagnostics> diags=PTB.sweep_forward_balanced(contexts, opt, &tm);
+  if(timings)*timings=tm;
+  if(opt.timing_file!=""){
+    std::ofstream ofs(opt.timing_file.c_str());
+    if(!ofs){
+      std::cerr<<"balanced_final_sweep: cannot open '"<<opt.timing_file<<"'!"<<std::endl;
+      throw DummyException();
+    }
+    ofs.precision(9);
+    ofs<<"phase,seconds"<<std::endl;
+    std::vector<double> v=tm.values();
+    for(size_t i=0; i<v.size(); i++){ ofs<<BalancedSweepTimings::names[i]<<","<<v[i]<<std::endl; }
+    ofs<<"total,"<<tm.total<<std::endl;
+  }
+  return diags;
+}
+
 }//namespace

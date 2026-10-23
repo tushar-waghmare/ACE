@@ -13,6 +13,7 @@
 #include "Reader.hpp"
 #include "InitialState.hpp"
 #include "Timings.hpp"
+#include "BalancedSweep.hpp"
 
 namespace ACE{
 
@@ -148,6 +149,8 @@ void ProcessTensorForwardList::setup2(Parameters &param, std::vector<std::shared
 
   TimeGrid tgrid(param);
   TruncationLayout trunc(param);
+  BalancedFinalSweep balanced_final;
+  balanced_final.setup(param, tgrid);
   std::string initial_PT = param.get_as_string("initial_PT");  
   std::string write_PT = param.get_as_string("write_PT");
   double dict_zero = param.get_as_double("dict_zero",-1.);
@@ -170,6 +173,17 @@ void ProcessTensorForwardList::setup2(Parameters &param, std::vector<std::shared
   bool use_Gaussian = param.get_as_bool("use_Gaussian",use_Gaussian_fw|use_Gaussian_log|use_Gaussian_select|use_Gaussian_repeat|use_Gaussian_infinite);
 
   bool use_uniACE = param.get_as_bool("use_uniACE");
+
+  if(balanced_final.active){
+    if(use_Gaussian_infinite || use_Gaussian_repeat || use_uniACE){
+      std::cerr<<"balanced_final_sweep: not implemented for use_Gaussian_infinite, use_Gaussian_repeat, use_uniACE!"<<std::endl;
+      throw DummyException();
+    }
+    if(!(mpgs.size()>0 || use_Gaussian)){
+      std::cerr<<"balanced_final_sweep: no PT is calculated (use tools/PTB_balanced_truncate to truncate an existing PT)!"<<std::endl;
+      throw DummyException();
+    }
+  }
 
   int intermediate_sweep_n = param.get_as_size_t("intermediate_sweep_n", 0);
   int final_sweep_n = param.get_as_size_t("final_sweep_n", 0);
@@ -381,6 +395,10 @@ std::cout<<"using: add_modes_tree"<<std::endl;
       }
 
 
+      if(TTree && balanced_final.active){
+        std::cerr<<"balanced_final_sweep: not implemented for CompressionTree!"<<std::endl;
+        throw DummyException();
+      }
       if(TTree){  
         TTree->write(TTree_filename);
         TTree->print_info_file(TTree_filename+"_info");
@@ -391,6 +409,9 @@ std::cout<<"using: add_modes_tree"<<std::endl;
       }
     }
     
+    //last truncating operation of the calculation (see BalancedSweep.hpp)
+    if(balanced_final.active){ balanced_final.run(*PTB); }
+
     PTB->write_all(); if(PTB->use_async_write)PTB->wait_write();
     PTB->read_only=true;
     if(did_use_temporary && PTB->use_multiple_files()){ 

@@ -297,3 +297,33 @@ dimension on held-out pulses; no change to outputs of existing examples with def
 - **Phase 6 completion:** report the HS error ||T - T_trunc||_HS / ||T||_HS (dictionary
   multiplicities, computed on the difference MPO by QR, no cancellation) next to the
   operational errors; pure-dephasing check against an exact reference.
+
+### Implementation notes and results (2026-10-23)
+
+- **Phase 6 completion:** `BalancedGramians::hs_distance` / `tools/PTB_HS_distance` (HS error of a
+  truncated PT, difference MPO + QR, no cancellation); `exact_dephasing.py` (independent boson
+  model on ACE's discretized modes, validated to 3.4e-7 on a tight 6-mode PT). On the 100-mode
+  PT, eta=0.3 reaches the input PT's own model error (vs. exact, M=3) from maxk 8; SVD does not
+  within maxk 24. SVD is HS-optimal; eta=0.3 stays within ~3x of its HS error, eta=0 does not
+  (HS error up to ~8 for pure dephasing: never use eta=0 alone).
+- **Phase 7 (balanced final sweep):** `balanced_final_sweep true` in bin/ACE
+  (`BalancedFinalSweep`, called in `ProcessTensorForwardList::setup2` right before the PT is
+  written; parameters and context time grids are checked before the calculation). Without the
+  flag the calculation is bitwise unchanged. End-to-end benchmark (30 modes, threshold 1e-6,
+  final_sweep_n 1, identical intermediate settings, `final_sweep_benchmark.py`): balanced to
+  m=8 already reaches the untruncated calculation's own total error (vs. the threshold-3e-7 PT
+  and vs. exact), SVD needs m>24 for held-out contexts; the balanced sweep adds 2-3 s to a
+  ~30 min calculation. Exception: pure-dephasing OOD (pulsed) contexts at m=12, where SVD is
+  slightly better (2.4e-4 vs 4.3e-4).
+- **Multiple PTs:** no new code needed. `PTB_join -initial_PT X -add_PT Y -only_join true`
+  reproduces `add_PT X add_PT Y` to 1e-14, including the order of non-commuting baths, and the
+  result is an ordinary PT-MPO that `PTB_balanced_truncate` / the balanced sweep truncate
+  (`tests/test_multi_pt_join.cpp`). Exact joins multiply bond dimensions (e.g. 25 x 35 = 875);
+  the balanced sweep handles that directly (diagnostics use BDCSVD/QR, the core keeps JacobiSVD).
+  Test: with eta=0, final-time readouts and m = 3 NL + 1 the training outputs are exact on a
+  joined PT (D=770) to 2e-15. Accuracy on a joined PT (small.pt x 2-mode JC bath, D=875,
+  only 3 training contexts, eta=0.3, held-out max error): maxk 8 balanced 1.5e-2 vs SVD
+  1.3e-2, maxk 16 balanced 7.3e-3 vs SVD 1.2e-2 (few contexts: modest gain).
+  Observed (not investigated further): PTB_join's default compressed mode (select, threshold
+  1e-9) deviated by 1.8e-3 from the two-PT simulation for non-commuting baths, so the exact
+  join (`only_join`) is the safe input for balanced truncation.

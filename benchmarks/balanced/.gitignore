@@ -7,3 +7,4 @@ results/*/seed_*/
 results/*/ctx/
 results/*/runs/
 builds_done.log
+results/*/*.pt
