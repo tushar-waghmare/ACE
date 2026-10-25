@@ -65,6 +65,11 @@ add_Pulse Gauss  {t0} {tau} {{{area:.10f}*pi}} {detuning:.10f}   {{hbar/2*|1><0|
 {OUTPUTS.format(obs=obs)}""")
 
 
+# coverage study (dephasing family): pulsed training and held-out contexts with disjoint
+# parameters (areas in units of pi, detunings in meV); ground state, observable |1><1|
+PULSED_TRAIN_GRID = [(1., -0.5), (3., 0.5), (1., 0.5), (3., -0.5)]
+OOD_PULSE_GRID = [(area, det) for area in (2., 4., 5.) for det in (-1., 0., 1.)]
+
 MIXED_OBSERVABLES = ['|1><1|_2', '|1><1|_2', '|0><1|_2+|1><0|_2', '-i*|0><1|_2+i*|1><0|_2']
 
 
@@ -198,9 +203,18 @@ def main():
     ap.add_argument('--rhat', default='tw', choices=['tw', 'reference'])
     ap.add_argument('--seed', type=int, default=1)
     ap.add_argument('--outdir', required=True)
+    ap.add_argument('--pulsed_train', type=int, default=0,
+                    help='replace the last K training contexts by pulses from PULSED_TRAIN_GRID (K <= 4)')
+    ap.add_argument('--ood_grid', action='store_true',
+                    help='OOD set = OOD_PULSE_GRID (pulses disjoint from PULSED_TRAIN_GRID; --n_ood ignored)')
     ap.add_argument('--contexts_only', action='store_true',
                     help='only write the context files (<outdir>[/seed_<s>]/ctx) and exit')
     a = ap.parse_args()
+    if not 0 <= a.pulsed_train <= min(len(PULSED_TRAIN_GRID), a.n_train):
+        ap.error(f'--pulsed_train must be in [0, {min(len(PULSED_TRAIN_GRID), a.n_train)}]')
+    if a.ood_grid:
+        a.n_ood = len(OOD_PULSE_GRID)
+    a.label = a.family + (f'+p{a.pulsed_train}' if a.pulsed_train else '') + ('+grid' if a.ood_grid else '')
 
     out_root = os.path.abspath(a.outdir)
     seeds = a.seeds if a.seeds else [a.seed]
@@ -246,6 +260,14 @@ def run_seed(a, seed, out):
             path = os.path.join(out, 'ctx', f'{split}_{i:02d}.param')
             gen(path)
             names[split].append(path)
+    # coverage study: overwrite after generation, so the random draws (and all other contexts)
+    # are the same as without these options
+    for k in range(a.pulsed_train):
+        area, det = PULSED_TRAIN_GRID[k]
+        write_context(names['train'][a.n_train - a.pulsed_train + k], area, det, t0, tau, a.te, a.dt, a.nintermediate)
+    if a.ood_grid:
+        for path, (area, det) in zip(names['ood'], OOD_PULSE_GRID):
+            write_context(path, area, det, t0, tau, a.te, a.dt, a.nintermediate)
     if a.contexts_only:
         return []
     allctx = names['train'] + names['test'] + names['ood']
@@ -267,7 +289,7 @@ def run_seed(a, seed, out):
         hs = hs_rel(pt_in, pt)
         for split in ('train', 'test', 'ood'):
             rf, rt, te_, dr = errors(res, reference, names[split])
-            rows.append(dict(family=a.family, seed=seed, readout_stride=a.readout_stride, rhat=a.rhat,
+            rows.append(dict(family=a.label, seed=seed, readout_stride=a.readout_stride, rhat=a.rhat,
                              method=method, maxk=maxk, eta='' if eta is None else eta, set=split,
                              rms_final=rf, rms_trace=rt, max_trace_err=te_, max_population_drift=dr,
                              maxdim=md, hs_rel=hs, runtime_s=runtime,
