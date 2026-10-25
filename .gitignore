@@ -2,3 +2,8 @@ build/
 venv/
 __pycache__/
 *.egg-info/
+# generated files
+*.gch
+examples/**/*.out
+examples/**/*.pt
+examples/**/*.pt_*
