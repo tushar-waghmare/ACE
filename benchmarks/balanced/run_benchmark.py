@@ -198,6 +198,8 @@ def main():
     ap.add_argument('--rhat', default='tw', choices=['tw', 'reference'])
     ap.add_argument('--seed', type=int, default=1)
     ap.add_argument('--outdir', required=True)
+    ap.add_argument('--contexts_only', action='store_true',
+                    help='only write the context files (<outdir>[/seed_<s>]/ctx) and exit')
     a = ap.parse_args()
 
     out_root = os.path.abspath(a.outdir)
@@ -206,6 +208,8 @@ def main():
     for seed in seeds:
         out = out_root if len(seeds) == 1 else os.path.join(out_root, f'seed_{seed}')
         rows += run_seed(a, seed, out)
+    if a.contexts_only:
+        return
     os.makedirs(out_root, exist_ok=True)
     with open(os.path.join(out_root, 'results.csv'), 'w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -242,6 +246,8 @@ def run_seed(a, seed, out):
             path = os.path.join(out, 'ctx', f'{split}_{i:02d}.param')
             gen(path)
             names[split].append(path)
+    if a.contexts_only:
+        return []
     allctx = names['train'] + names['test'] + names['ood']
 
     def evaluate(pt, tag):

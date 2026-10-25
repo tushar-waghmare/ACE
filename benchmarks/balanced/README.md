@@ -68,5 +68,10 @@ add_balanced_context  ctx1.param    # repeat; same time grid as the calculation
 ~/.venvs/ace/bin/python benchmarks/balanced/plot_final_sweep.py                 # plots/final_sweep/
 ```
 
+100 modes (HPC): `sbatch benchmarks/balanced/slurm_final_sweep100.sh` (13 builds of `bench100_PT.param`,
+results in `results/final_sweep100/`; no tighter reference, exact reference for pure dephasing).
+`final_sweep_benchmark.py --template/--ctxdir/--tight` select the PT calculation, the contexts and the
+tighter reference; `run_benchmark.py --contexts_only` regenerates the seeded contexts without running.
+
 Multiple baths: join first (`tools/PTB_join -initial_PT X.pt -add_PT Y.pt -only_join true`, same
 order as `add_PT X add_PT Y`), then truncate the joined PT with `PTB_balanced_truncate`.
