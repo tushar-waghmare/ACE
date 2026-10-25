@@ -327,3 +327,24 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   Observed (not investigated further): PTB_join's default compressed mode (select, threshold
   1e-9) deviated by 1.8e-3 from the two-PT simulation for non-commuting baths, so the exact
   join (`only_join`) is the safe input for balanced truncation.
+
+### Decisions (2026-10-25): coverage study and joined-PT benchmark
+
+- **Coverage (pure-dephasing OOD loss).** Finding: with a pulse-free (dephasing) training ensemble,
+  SVD beats eta=0.3 on pulsed held-out contexts for m <= 8 and up to ~1.6x at m = 12, in all 3 seeds
+  (bench30_thr1e-6), while balanced is 100-1000x better in distribution; balanced wins from m = 16.
+  Interpretation: coverage, not a defect. Follow-up study:
+  (a) pulsed test contexts disjoint in parameters from pulsed training contexts
+      (train areas {pi, 3pi}, test areas {2pi, 4pi, 5pi}, at different detunings);
+  (b) 2/16 and 4/16 pulsed training contexts (rest dephasing), 3 seeds each;
+  (c) eta in {0.3, 0.6, 1.0} for the augmented runs;
+  (d) singular-value spectra at a few cuts (dephasing family, pulsed family, HS Schmidt spectrum),
+      plotted as decay curves (`balanced_spectra` output).
+  Guidance recorded regardless: the training ensemble must cover the deployment contexts;
+  eta = 1 (protected HS) is the fallback when it cannot.
+- **Joined-PT benchmark.** First a one-seed validation: two 15-mode phonon halves of bench30
+  (`Boson_skip_mode`), joined with `PTB_join -only_join`, must reproduce bench30 outputs and the
+  balanced-vs-SVD comparison within truncation accuracy. Main benchmark: bench30 phonons joined with
+  a few-mode lossy cavity bath (single modes with `add_Lindblad` in `.mparam` files), mixed
+  ensemble 16/32/32, 3 seeds, contexts including exciton-driving pulses. Radiative continuum
+  deferred.

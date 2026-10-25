@@ -39,9 +39,15 @@ struct BalancedSweepOptions{
   int verbosity;        //0: silent, 1: summary, 2: one line per cut
   std::string log_file; //CSV file with per-cut diagnostics ("" = none)
   std::string timing_file; //CSV file with the runtime per phase ("" = none)
+  std::string spectra_file; //CSV file with singular-value spectra per cut ("" = none):
+                        //'op' (protected operational core), 'blend' (core actually
+                        //truncated, eta>0), 'hs' (unprotected HS Schmidt values
+                        //sigma(R L), eta>0); past truncated at earlier cuts
+  std::vector<size_t> spectra_cuts; //cuts for spectra_file (empty: all)
 
   //reads balanced_threshold, balanced_maxk, balanced_mink, balanced_eta,
-  //balanced_rtol, balanced_readout_stride, balanced_log, balanced_timing, verbosity
+  //balanced_rtol, balanced_readout_stride, balanced_log, balanced_timing,
+  //balanced_spectra, balanced_spectra_cut (repeatable), verbosity
   void setup(Parameters &param);
   void print_info(std::ostream &os=std::cout)const;
 

@@ -202,6 +202,62 @@ static void tool_tests(){
   check(in.get(in.get_n_tot()/2).M.dim_d2>6, "read_PT is not modified");
 }
 
+//balanced_spectra: read "cut,kind,i,sigma" into (cut, kind) -> sigma
+static std::map<std::pair<int,std::string>, std::vector<double> > read_spectra(const std::string &fname){
+  std::map<std::pair<int,std::string>, std::vector<double> > sp;
+  std::ifstream ifs(fname);
+  std::string line; std::getline(ifs, line);
+  while(std::getline(ifs, line)){
+    std::stringstream ss(line); std::string c, kind, i, v;
+    std::getline(ss, c, ','); std::getline(ss, kind, ','); std::getline(ss, i, ','); std::getline(ss, v, ',');
+    sp[std::make_pair(std::stoi(c), kind)].push_back(std::stod(v));
+  }
+  return sp;
+}
+
+static void spectra_tests(){
+  BalancedContexts train=make_contexts(train_files);
+  BalancedContexts held=make_contexts(held_files);
+  BalancedSweepOptions opt; opt.trunc=TruncatedSVD(0., 6); opt.verbosity=0; opt.eta=0.3;
+  ProcessTensorBuffer plain; load_in_memory(plain, small_PT());
+  BalancedSweep::sweep_forward(plain, train, opt);
+
+  BalancedSweepOptions o_sp=opt; o_sp.spectra_file="tests/data/bal_spectra.csv";
+  ProcessTensorBuffer logged; load_in_memory(logged, small_PT());
+  BalancedSweep::sweep_forward(logged, train, o_sp);
+  double dev=0;
+  for(size_t c=0; c<held.size(); c++){
+    dev=std::max(dev, std::abs(final_outcome(logged, held[c])-final_outcome(plain, held[c])));
+  }
+  check(dev==0., "balanced_spectra does not change the truncated PT (held-out |dy| "+sci(dev)+")");
+
+  auto sp=read_spectra(o_sp.spectra_file);
+  int n_cuts=plain.get_n_tot()-1;
+  bool complete=true, sorted=true;
+  for(int n=0; n<n_cuts; n++){
+    for(const char *kind : {"op", "blend", "hs"}){
+      auto it=sp.find(std::make_pair(n, std::string(kind)));
+      if(it==sp.end() || it->second.empty()){ complete=false; continue; }
+      for(size_t i=1; i<it->second.size(); i++){ if(it->second[i]>it->second[i-1]*(1.+1e-12))sorted=false; }
+    }
+  }
+  check(complete && sorted, "balanced_spectra (eta>0): op, blend, hs at every cut, non-increasing");
+
+  //cut 0: nothing truncated yet, so the operational core equals that of a pure-operational run
+  BalancedSweepOptions o_op=opt; o_op.eta=0.; o_op.spectra_file="tests/data/bal_spectra_op.csv";
+  o_op.spectra_cuts={0, 3};
+  ProcessTensorBuffer op; load_in_memory(op, small_PT());
+  BalancedSweep::sweep_forward(op, train, o_op);
+  auto sp0=read_spectra(o_op.spectra_file);
+  const std::vector<double> &a=sp.at(std::make_pair(0, std::string("op")));
+  const std::vector<double> &b=sp0.at(std::make_pair(0, std::string("op")));
+  double d0=(a.size()==b.size()) ? 0. : 1.;
+  for(size_t i=0; i<std::min(a.size(), b.size()); i++){ d0=std::max(d0, std::abs(a[i]-b[i])/a[0]); }
+  check(d0<1e-12, "cut 0: 'op' spectrum of the blended run == pure-operational run, rel. dev "+sci(d0));
+  check(sp0.size()==2 && sp0.count(std::make_pair(3, std::string("op"))) && !sp0.count(std::make_pair(0, std::string("hs"))),
+        "balanced_spectra_cut selects cuts; eta=0 writes only 'op'");
+}
+
 static void error_tests(){
   BalancedContexts train=make_contexts(train_files);
   BalancedSweepOptions opt; opt.trunc=TruncatedSVD(0., 6); opt.verbosity=0; opt.eta=0.;
@@ -225,6 +281,7 @@ int main(){
   single_cut_tests();
   sweep_tests();
   tool_tests();
+  spectra_tests();
   error_tests();
  }catch(DummyException &e){
   check(false, "unexpected DummyException");

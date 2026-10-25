@@ -3,6 +3,7 @@
 #include "DummyException.hpp"
 #include "Timings.hpp"
 #include <fstream>
+#include <algorithm>
 
 namespace ACE{
 
@@ -23,6 +24,8 @@ void BalancedSweepOptions::setup(Parameters &param){
   verbosity=param.get_as_int("verbosity", 1);
   log_file=param.get_as_string("balanced_log", "");
   timing_file=param.get_as_string("balanced_timing", "");
+  spectra_file=param.get_as_string("balanced_spectra", "");
+  spectra_cuts=param.get_all_size_t("balanced_spectra_cut");
   if(trunc.threshold<0. || trunc.maxk<0 || trunc.mink<0 || !(rtol>=0.) || readout_stride<0){
     std::cerr<<"BalancedSweepOptions: balanced_threshold, balanced_maxk, balanced_mink, balanced_rtol, balanced_readout_stride must be non-negative!"<<std::endl;
     throw DummyException();
@@ -42,6 +45,7 @@ void BalancedSweepOptions::print_info(std::ostream &os)const{
     <<" mink="<<trunc.mink<<" (total bond dimension) eta="<<eta<<" rtol="<<rtol
     <<" readout_stride="<<readout_stride;
   if(log_file!="")os<<" log='"<<log_file<<"'";
+  if(spectra_file!="")os<<" spectra='"<<spectra_file<<"'";
   os<<std::endl;
 }
 
@@ -132,6 +136,19 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
     }
     BalancedTruncationDiagnostics::print_csv_header(ofs);
   }
+  std::ofstream ofs_spec;
+  if(opt.spectra_file!=""){
+    ofs_spec.open(opt.spectra_file.c_str());
+    if(!ofs_spec){
+      std::cerr<<"BalancedSweep::sweep_forward: cannot open '"<<opt.spectra_file<<"'!"<<std::endl;
+      throw DummyException();
+    }
+    ofs_spec<<"cut,kind,i,sigma"<<std::endl;
+    ofs_spec.precision(17);
+  }
+  auto write_spectrum=[&ofs_spec](int n, const char *kind, const Eigen::VectorXd &sigma){
+    for(int i=0; i<sigma.size(); i++){ ofs_spec<<n<<","<<kind<<","<<i<<","<<sigma(i)<<"\n"; }
+  };
 
   std::vector<BalancedTruncationDiagnostics> diags;
   int maxdim_in=1, maxdim_out=1;
@@ -165,6 +182,18 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
         P=BalancedTruncation::protected_projector(A_b, F_b, e.closure, rhat, opt.trunc, opt.rtol);
       }else{
         P=BalancedTruncation::protected_projector(A, F, e.closure, rhat, opt.trunc, opt.rtol);
+      }
+      if(ofs_spec.is_open() && (opt.spectra_cuts.empty() ||
+         std::find(opt.spectra_cuts.begin(), opt.spectra_cuts.end(), (size_t)n)!=opt.spectra_cuts.end())){
+        if(use_blend){
+          write_spectrum(n, "op", BalancedTruncation::protected_projector(
+                                    A, F, e.closure, rhat, opt.trunc, opt.rtol).sigma);
+          write_spectrum(n, "blend", P.sigma);
+          Eigen::MatrixXcd RL=gramians.get_R(n)*L_hs;
+          write_spectrum(n, "hs", Eigen::BDCSVD<Eigen::MatrixXcd>(RL).singularValues());
+        }else{
+          write_spectrum(n, "op", P.sigma);
+        }
       }
       tm.noise_floor+=P.t_noise;
       tm.core_svd+=P.t_core;
