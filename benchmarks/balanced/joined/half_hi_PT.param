@@ -1,0 +1,37 @@
+# Joined-PT validation (plan Section 7, 2026-10-25): hi half of bench30_thr1e-6 (Boson_skip_mode)
+ta                    0
+dt                    1e-1
+te                    20
+Nintermediate        20
+
+threshold             1e-6
+dict_zero             1e-12
+
+add_Hamiltonian            {-1.5*|1><1|_2}
+add_Output                 {|1><1|_2}
+
+Boson_N_modes                    30
+Boson_subtract_polaron_shift     false
+Boson_M                          3
+Boson_E_max                      5
+Boson_J_type                     QDPhonon
+Boson_sort                       none
+temperature                      4
+
+Boson_skip_mode 0
+Boson_skip_mode 1
+Boson_skip_mode 2
+Boson_skip_mode 3
+Boson_skip_mode 4
+Boson_skip_mode 5
+Boson_skip_mode 6
+Boson_skip_mode 7
+Boson_skip_mode 8
+Boson_skip_mode 9
+Boson_skip_mode 10
+Boson_skip_mode 11
+Boson_skip_mode 12
+Boson_skip_mode 13
+Boson_skip_mode 14
+write_PT half_hi.pt
+outfile half_hi_PT.out

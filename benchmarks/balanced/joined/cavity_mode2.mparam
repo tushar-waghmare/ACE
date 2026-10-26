@@ -1,0 +1,4 @@
+# lossy cavity mode 2 (Jaynes-Cummings coupling to the QD transition), frame of the benchmark contexts
+Nintermediate 20
+add_Hamiltonian {hbar*0.15*(|1><0|_2 otimes b_3 + |0><1|_2 otimes bdagger_3) + 0.5*(Id_2 otimes n_3)}
+add_Lindblad 0.2 { Id_2 otimes b_3 }

@@ -1,0 +1,14 @@
+# Joined-PT benchmark (plan Section 7, 2026-10-25): few-mode lossy cavity bath, joined with bench30 phonons.
+# Mode 1: resonant (0 meV), g = 0.3/ps; mode 2: +0.5 meV, g = 0.15/ps; kappa = 0.2/ps; Fock cutoff 3.
+ta                    0
+dt                    1e-1
+te                    20
+Nintermediate        20
+threshold             1e-8
+dict_zero             1e-12
+add_Hamiltonian            {-1.5*|1><1|_2}
+add_Output                 {|1><1|_2}
+add_single_mode_from_file  cavity_mode1.mparam  {|0><0|_3}
+add_single_mode_from_file  cavity_mode2.mparam  {|0><0|_3}
+write_PT    cavity.pt
+outfile     cavity_PT.out

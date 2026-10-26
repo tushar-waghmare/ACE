@@ -134,6 +134,21 @@ def simulate(ctx, pt, outfile):
     return t, obs, tr, pop
 
 
+def is_pt_file(f):
+    """PT header 'x.pt' or one of its block files 'x.pt_<n>' (buffer_blocksize > 0)"""
+    base, _, block = f.rpartition('.pt_')
+    return f.endswith('.pt') or (base != '' and block.isdigit())
+
+
+def copy_pt(src, dst):
+    """copy a PT including its block files"""
+    shutil.copyfile(src, dst)
+    d, name = os.path.split(src)
+    for f in os.listdir(d or '.'):
+        if f.startswith(name + '_') and f[len(name) + 1:].isdigit():
+            shutil.copyfile(os.path.join(d, f), dst + f[len(name):])
+
+
 def maxdim_of(pt):
     _, out = run([os.path.join(TOOLS, 'PTB_analyze'), '-read_PT', pt])
     for line in out.splitlines():
@@ -198,6 +213,9 @@ def main():
     ap.add_argument('--seeds', type=int, nargs='+', default=None, help='several seeds (overrides --seed)')
     ap.add_argument('--jobs', type=int, default=1, help='parallel ACE simulations')
     ap.add_argument('--keep_pts', action='store_true', help='keep the truncated PT files')
+    ap.add_argument('--buffer_blocksize', type=int, default=-1,
+                    help='block size of the balanced output PTs (default: single file; use with blocked input PTs '
+                         'to bound memory)')
     ap.add_argument('--maxk', type=int, nargs='+', default=[4, 6, 8, 12])
     ap.add_argument('--eta', type=float, nargs='+', default=[0., 0.3, 1.])
     ap.add_argument('--rhat', default='tw', choices=['tw', 'reference'])
@@ -301,7 +319,7 @@ def run_seed(a, seed, out):
 
     for maxk in a.maxk:
         svd_pt = os.path.join(out, f'svd_{maxk}.pt')
-        shutil.copyfile(pt_in, svd_pt)
+        copy_pt(pt_in, svd_pt)
         t_bw, _ = run([os.path.join(TOOLS, 'PTB_sweep_backward'), '-read_PT', svd_pt, '-threshold', '0', '-verbosity', '0'])
         t_fw, _ = run([os.path.join(TOOLS, 'PTB_sweep_forward'), '-read_PT', svd_pt, '-threshold', '0',
                        '-compress_maxk', str(maxk), '-verbosity', '0'])
@@ -314,13 +332,15 @@ def run_seed(a, seed, out):
                    '-balanced_maxk', str(maxk), '-balanced_eta', str(eta), '-balanced_rhat', a.rhat,
                    '-balanced_readout_stride', str(a.readout_stride),
                    '-balanced_log', log, '-verbosity', '0']
+            if a.buffer_blocksize > 0:
+                cmd += ['-buffer_blocksize', str(a.buffer_blocksize)]
             for c in names['train']:
                 cmd += ['-add_balanced_context', c]
             t_b, _ = run(cmd)
             record('balanced', maxk, eta, bal_pt, t_b, balanced_stats(log))
         if not a.keep_pts:
             for f in os.listdir(out):
-                if f.endswith('.pt') and f.startswith(('svd_', 'balanced_')):
+                if is_pt_file(f) and f.startswith(('svd_', 'balanced_')):
                     os.remove(os.path.join(out, f))
     return rows
 

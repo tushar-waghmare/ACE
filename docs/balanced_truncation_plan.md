@@ -360,3 +360,16 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   (3-4x at m = 4, 15-240x at m = 6-8, 4000-10000x at m = 24). Conclusion: the OOD loss
   is a coverage effect; 2-4 pulsed training contexts with different parameters remove it from m = 6
   (m = 4 stays SVD-favoured). eta=1 tracks SVD, as expected.
+
+### Results (2026-10-26): joined-halves validation (one seed)
+
+- `joined/halves_joined_b10.pt`: exact join (`PTB_join -only_join`) of the two 15-mode halves of
+  bench30_thr1e-6 (D = 550), stored with `buffer_blocksize 10` (single-file version: 1.9 GB resident
+  per simulation; blocked: 1.0 GB; balanced truncation 2.7 GB; PTB_join writes into `initial_PT`, so
+  join a copy). Same contexts as bench30 mixed seed 1 (`compare_joined.py`).
+- The two untruncated PTs differ by 4.7e-4 (in distribution) / 1.7e-4 (OOD) RMS in final readouts
+  (input model difference: each half was built at threshold 1e-6). Scored against a common
+  reference, both arms agree to ~10% wherever the truncation error exceeds that difference
+  (all methods at m <= 8; SVD and eta=1 throughout), and balanced-vs-SVD conclusions are the same.
+  Joined arm, eta=0.3 vs SVD: in distribution 1.6x (m=4) to 25x (m=24); OOD 0.9-1.3x for m <= 12,
+  2.8x (m=16), 4.4x (m=24). Validation passed; the balanced path handles joined PTs as single PTs.
