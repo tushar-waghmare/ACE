@@ -9,3 +9,4 @@ results/*/runs/
 builds_done.log
 results/*/*.pt
 joined/*.pt*
+results/*/validation/

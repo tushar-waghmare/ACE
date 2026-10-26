@@ -1,0 +1,20 @@
+# Lossy-cavity bath for the joined-PT benchmark (HPC): same as cavity_PT.param, blocked output
+# (blocks of 2 elements) so that the exact join with bench30 (D up to 45*36 = 1620) is memory-bounded.
+# Run from this directory (mode files are relative): ../../../bin/ACE cavity_b2_PT.param
+ta                    0
+dt                    1e-1
+te                    20
+Nintermediate        20
+
+threshold             1e-8
+dict_zero             1e-12
+
+add_Hamiltonian            {-1.5*|1><1|_2}
+add_Output                 {|1><1|_2}
+
+add_single_mode_from_file  cavity_mode1.mparam  {|0><0|_3}
+add_single_mode_from_file  cavity_mode2.mparam  {|0><0|_3}
+
+write_PT    cavity_b2.pt
+buffer_blocksize 2
+outfile     cavity_b2_PT.out
