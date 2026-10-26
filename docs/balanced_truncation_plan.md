@@ -348,3 +348,15 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   a few-mode lossy cavity bath (single modes with `add_Lindblad` in `.mparam` files), mixed
   ensemble 16/32/32, 3 seeds, contexts including exciton-driving pulses. Radiative continuum
   deferred.
+
+### Results (2026-10-26): coverage study
+
+- Pulse-free training ensemble augmented by K pulsed contexts (areas {pi, 3pi}), OOD test pulses
+  disjoint in parameters (areas {2pi, 4pi, 5pi}, detunings {-1, 0, 1} meV), 3 seeds, bench30_thr1e-6
+  (`results/coverage_dephasing_p{0,2,4}`, `plot_coverage.py` -> `plots/coverage/`). OOD RMS ratio
+  SVD / balanced(eta=0.3), geometric mean over seeds, m = 4, 6, 8, 12, 16, 24:
+  K=0: 0.54 0.78 0.81 0.50 1.01 1.62; K=2: 0.67 1.24 1.44 1.05 2.20 3.76;
+  K=4: 0.75 2.14 2.12 1.46 3.19 7.46. In distribution, eta=0.3 stays better than SVD for all K
+  (3-4x at m = 4, 15-240x at m = 6-8, 4000-10000x at m = 24). Conclusion: the OOD loss
+  is a coverage effect; 2-4 pulsed training contexts with different parameters remove it from m = 6
+  (m = 4 stays SVD-favoured). eta=1 tracks SVD, as expected.
