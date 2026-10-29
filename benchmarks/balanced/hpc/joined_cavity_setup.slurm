@@ -1,11 +1,12 @@
 #!/bin/bash --login
 # Joined-PT benchmark, step 1 of 2 (ARCHER2): build bench30 phonons + lossy cavity PTs, join them
-# exactly (D up to 45*36 = 1620, ~18 GB on /work), validate against the two-PT simulation, and
+# exactly (D up to 45*36 = 1620, 68 GB on /work), validate against the two-PT simulation, and
 # write the context files for seeds 1-3. Finished steps are skipped on resubmission.
 #
 #   cd $ACE_BAL_HOME/benchmarks/balanced/hpc
 #   sbatch joined_cavity_setup.slurm
-#   sbatch --dependency=afterok:<jobid> --array=1-3 joined_cavity_seed.slurm
+#   sbatch --dependency=afterok:<jobid> joined_cavity_probe.slurm   (peak memory -> MAX_PARALLEL)
+#   sbatch --array=1-3%1 joined_cavity_seed.slurm
 #
 #SBATCH --job-name=ACE-bal-setup
 #SBATCH --nodes=1

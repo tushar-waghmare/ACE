@@ -27,6 +27,7 @@ max/median ||X||*||Y|| and the sum of local operational errors.
 """
 import argparse
 import csv
+import fcntl
 import math
 import os
 import random
@@ -119,8 +120,13 @@ add_Hamiltonian  {{-1.5*|1><1|_2}}
 {pulses}{OUTPUTS.format(obs='|1><1|_2')}""")
 
 
-def simulate(ctx, pt, outfile):
-    run([ACE, ctx, '-add_PT', pt, '-outfile', outfile, '-set_precision', '14'])
+def simulate(ctx, pt, outfile, reuse=False):
+    """reuse: keep an existing outfile (written atomically, so it is always complete)"""
+    if not (reuse and os.path.exists(outfile)):
+        tmp = f'{outfile}.tmp{os.getpid()}' if reuse else outfile
+        run([ACE, ctx, '-add_PT', pt, '-outfile', tmp, '-set_precision', '14'])
+        if reuse:
+            os.replace(tmp, outfile)
     t, obs, tr, pop = [], [], [], []
     with open(outfile) as f:
         for line in f:
@@ -227,6 +233,11 @@ def main():
                     help='OOD set = OOD_PULSE_GRID (pulses disjoint from PULSED_TRAIN_GRID; --n_ood ignored)')
     ap.add_argument('--contexts_only', action='store_true',
                     help='only write the context files (<outdir>[/seed_<s>]/ctx) and exit')
+    ap.add_argument('--ref_dir', default=None,
+                    help='reference outputs shared between runs of one seed (existing ones are reused)')
+    ap.add_argument('--reference_only', action='store_true', help='only run the reference simulations')
+    ap.add_argument('--svd_dir', default=None,
+                    help='SVD-truncated PTs shared between seeds (svd_<maxk>.pt, kept; reused when done)')
     a = ap.parse_args()
     if not 0 <= a.pulsed_train <= min(len(PULSED_TRAIN_GRID), a.n_train):
         ap.error(f'--pulsed_train must be in [0, {min(len(PULSED_TRAIN_GRID), a.n_train)}]')
@@ -240,7 +251,7 @@ def main():
     for seed in seeds:
         out = out_root if len(seeds) == 1 else os.path.join(out_root, f'seed_{seed}')
         rows += run_seed(a, seed, out)
-    if a.contexts_only:
+    if a.contexts_only or a.reference_only:
         return
     os.makedirs(out_root, exist_ok=True)
     with open(os.path.join(out_root, 'results.csv'), 'w', newline='') as f:
@@ -290,14 +301,18 @@ def run_seed(a, seed, out):
         return []
     allctx = names['train'] + names['test'] + names['ood']
 
-    def evaluate(pt, tag):
-        outs = {c: os.path.join(out, 'runs', f'{tag}_{os.path.basename(c)}.out') for c in allctx}
+    def evaluate(pt, tag, outdir=None, reuse=False):
+        outdir = outdir or os.path.join(out, 'runs')
+        os.makedirs(outdir, exist_ok=True)
+        outs = {c: os.path.join(outdir, f'{tag}_{os.path.basename(c)}.out') for c in allctx}
         with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
-            futures = {c: ex.submit(simulate, c, pt, outs[c]) for c in allctx}
+            futures = {c: ex.submit(simulate, c, pt, outs[c], reuse) for c in allctx}
             return {c: futures[c].result() for c in allctx}
 
     print(f"seed {seed}: reference {pt_in} (maxdim {maxdim_of(pt_in)})", flush=True)
-    reference = evaluate(pt_in, 'ref')
+    reference = evaluate(pt_in, 'ref', a.ref_dir and os.path.abspath(a.ref_dir), reuse=a.ref_dir is not None)
+    if a.reference_only:
+        return []
 
     rows = []
 
@@ -318,12 +333,29 @@ def run_seed(a, seed, out):
                   f"rms_final={rf:.3e} rms_trace={rt:.3e} trace_err={te_:.1e} drift={dr:.1e} maxdim={md}", flush=True)
 
     for maxk in a.maxk:
-        svd_pt = os.path.join(out, f'svd_{maxk}.pt')
-        copy_pt(pt_in, svd_pt)
-        t_bw, _ = run([os.path.join(TOOLS, 'PTB_sweep_backward'), '-read_PT', svd_pt, '-threshold', '0', '-verbosity', '0'])
-        t_fw, _ = run([os.path.join(TOOLS, 'PTB_sweep_forward'), '-read_PT', svd_pt, '-threshold', '0',
-                       '-compress_maxk', str(maxk), '-verbosity', '0'])
-        record('svd', maxk, None, svd_pt, t_bw + t_fw)
+        # the SVD arm does not depend on the contexts: with --svd_dir it is computed once and shared
+        svd_pt = os.path.join(os.path.abspath(a.svd_dir) if a.svd_dir else out, f'svd_{maxk}.pt')
+        done = svd_pt + '.done'
+        if a.svd_dir:  # serializes seeds running at the same time; released if the process dies
+            os.makedirs(os.path.dirname(svd_pt), exist_ok=True)
+            lock = open(svd_pt + '.lock', 'w')
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        if a.svd_dir and os.path.exists(done):
+            with open(done) as f:
+                t_svd = float(f.read())
+        else:
+            os.makedirs(os.path.dirname(svd_pt), exist_ok=True)
+            copy_pt(pt_in, svd_pt)
+            t_bw, _ = run([os.path.join(TOOLS, 'PTB_sweep_backward'), '-read_PT', svd_pt, '-threshold', '0', '-verbosity', '0'])
+            t_fw, _ = run([os.path.join(TOOLS, 'PTB_sweep_forward'), '-read_PT', svd_pt, '-threshold', '0',
+                           '-compress_maxk', str(maxk), '-verbosity', '0'])
+            t_svd = t_bw + t_fw
+            if a.svd_dir:
+                with open(done, 'w') as f:
+                    f.write(f'{t_svd}\n')
+        if a.svd_dir:
+            lock.close()
+        record('svd', maxk, None, svd_pt, t_svd)
 
         for eta in a.eta:
             bal_pt = os.path.join(out, f'balanced_{maxk}_{eta}.pt')
@@ -340,7 +372,7 @@ def run_seed(a, seed, out):
             record('balanced', maxk, eta, bal_pt, t_b, balanced_stats(log))
         if not a.keep_pts:
             for f in os.listdir(out):
-                if is_pt_file(f) and f.startswith(('svd_', 'balanced_')):
+                if is_pt_file(f) and f.startswith(('balanced_',) if a.svd_dir else ('svd_', 'balanced_')):
                     os.remove(os.path.join(out, f))
     return rows
 
