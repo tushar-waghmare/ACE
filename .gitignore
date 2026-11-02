@@ -7,3 +7,4 @@ __pycache__/
 examples/**/*.out
 examples/**/*.pt
 examples/**/*.pt_*
+.DS_Store
