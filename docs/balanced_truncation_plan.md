@@ -391,5 +391,9 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   maxk {3, 6}: telescoping residual <= 4.5e-15, RMS <= certificate for training and validation
   (certificate/RMS 1.07-3.3), outcomes equal independent trajectories and, for the tool output,
   `Simulation_PT` via `add_PT`.
-- Smoke test: `smoke_PT.param` gives `|1><1|` = 0.362851 at t = 5 on this Mac on every commit
-  since Phase 0 (`7713aff`, `227baa1`, current), not the 0.516043 quoted in Phase 0 above.
+- Smoke test (resolved 2026-11-02): the Phase 0 commit `7713aff` had stored smoke parameter files
+  that differ from the handoff (1pi instead of 3pi pulse, threshold 5e-8 instead of 1e-6, extra
+  `Nintermediate 20`); they give 0.362851. Replaced by the handoff files (SHA-256 identical to the
+  Linux reference bundle). With them the Mac build (Apple clang -O3, arm64, Eigen 3.4.0) reproduces
+  the Linux reference (g++ -O1, x86_64) to <= 1e-13 at all times: 0.516043, 0.516049 at threshold
+  1e-7, 0.536265 without phonons, Maxdim 17 at 16. No platform discrepancy.
