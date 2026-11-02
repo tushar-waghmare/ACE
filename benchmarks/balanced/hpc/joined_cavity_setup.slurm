@@ -6,7 +6,7 @@
 #   cd $ACE_BAL_HOME/benchmarks/balanced/hpc
 #   sbatch joined_cavity_setup.slurm
 #   sbatch --dependency=afterok:<jobid> joined_cavity_probe.slurm   (peak memory -> MAX_PARALLEL)
-#   sbatch --array=1-3%1 joined_cavity_seed.slurm
+#   sbatch --array=1-3%1 joined_cavity_seed.slurm   (option A; option B: see joined_cavity_seed.slurm)
 #
 #SBATCH --job-name=ACE-bal-setup
 #SBATCH --nodes=1
