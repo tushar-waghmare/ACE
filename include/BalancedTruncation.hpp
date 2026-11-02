@@ -60,6 +60,9 @@ struct BalancedTruncationDiagnostics{
   double Pi0_norm;           //||Pi_0||_2, Pi_0 = rhat q^T / s (protected only)
   double unprotected_bound;  //sum_{i>m} sigma_i(F A)^2 (optimal unprotected error at rank m)
   double E_aug;              //error on the training pairs, see augmented_error; <0: not computed
+  double paired;             //sum_c w_c |e_k(c)|^2 over the training contexts (global
+                             //certificate, docs/certificate_port.md); <0: not computed
+  double paired_validation;  //same for the validation contexts; <0: not computed
   bool rank_limited_by_rtol; //r was reduced because of numerically zero sigma
   bool no_truncation;        //m >= D: inserting Pi would not reduce the bond
 
@@ -70,7 +73,8 @@ struct BalancedTruncationDiagnostics{
 
   BalancedTruncationDiagnostics() : cut(-1), D(0), m(0), r(0), protect(false), s(1.),
      sigma_sq_total(0), tail(0), local_error(0), amplification(0), YX_error(0),
-     Pi_norm(0), Pi0_norm(0), unprotected_bound(0), E_aug(-1), rank_limited_by_rtol(false),
+     Pi_norm(0), Pi0_norm(0), unprotected_bound(0), E_aug(-1), paired(-1),
+     paired_validation(-1), rank_limited_by_rtol(false),
      no_truncation(false){}
 };
 

@@ -119,20 +119,27 @@ void BalancedContexts::add(Parameters &param, const std::string &label, double w
   list.back().setup(param, label, weight);
 }
 
-void BalancedContexts::setup(Parameters &param){
-  list.clear();
-  for(int r=0; r<param.get_nr_rows("add_balanced_context"); r++){
-    std::vector<std::string> row=param.get_row("add_balanced_context", r);
+std::vector<BalancedContext> BalancedContexts::read_rows(Parameters &param, const std::string &key){
+  std::vector<BalancedContext> ret;
+  for(int r=0; r<param.get_nr_rows(key); r++){
+    std::vector<std::string> row=param.get_row(key, r);
     if(row.size()<1 || row.size()>2){
-      std::cerr<<"Usage: add_balanced_context <file.param> [weight]"<<std::endl;
+      std::cerr<<"Usage: "<<key<<" <file.param> [weight]"<<std::endl;
       throw DummyException();
     }
     double weight=1.;
     if(row.size()>1){
-      weight=param.get_as_double("add_balanced_context", 1., r, 1);
+      weight=param.get_as_double(key, 1., r, 1);
     }
-    add(row[0], weight);
+    ret.push_back(BalancedContext());
+    ret.back().setup(row[0], weight);
   }
+  return ret;
+}
+
+void BalancedContexts::setup(Parameters &param){
+  list=read_rows(param, "add_balanced_context");
+  validation=read_rows(param, "balanced_validation_context");
   set_rhat(param.get_as_string("balanced_rhat", "tw"),
            param.get_as_string("balanced_rhat_context", ""));
 }
@@ -218,6 +225,9 @@ void BalancedContexts::print_info(std::ostream &os)const{
   os<<"  rhat: "<<rhat_mode;
   if(use_reference_rhat()){ os<<" (reference past '"<<rhat_context.label<<"')"; }
   os<<std::endl;
+  if(!validation.empty()){
+    os<<"  "<<validation.size()<<" validation context(s) (certificate only)"<<std::endl;
+  }
 }
 
 }//namespace

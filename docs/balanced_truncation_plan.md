@@ -373,3 +373,23 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   (all methods at m <= 8; SVD and eta=1 throughout), and balanced-vs-SVD conclusions are the same.
   Joined arm, eta=0.3 vs SVD: in distribution 1.6x (m=4) to 25x (m=24); OOD 0.9-1.3x for m <= 12,
   2.8x (m=16), 4.4x (m=24). Validation passed; the balanced path handles joined PTs as single PTs.
+
+### Implementation notes (2026-11-02): global ensemble certificate
+
+- Ported per `docs/certificate_port.md` (reference: `tools/balanced_ref/certificate_iid.py`,
+  `certificate_paired.py`; both pass). Training pasts and futures already share one context list,
+  so the paired terms reuse the sweep's states and the final-time testers `F_pairs` (no extra
+  propagation): `e_k(c) sqrt(w_c) = sum(F_c .* S) - sum((F_c X) .* (S Y^T))`. Per-cut log columns
+  `paired`, `paired_validation` (appended); `balanced_certificate <csv>` (set, n_contexts,
+  certificate, rms_error, max_identity_residual, tail_bound); `balanced_validation_context <file>
+  [weight]` (held out, one backward + one forward pass each, does not change the projectors).
+  y(c) is the cut-0 pairing before any insertion, y~(c) the readout after the last truncated
+  element, so the telescoping identity is checked at run time. Scope: final-time readout,
+  relative to the sweep's input PT. `tail_bound = d sum_k sqrt(tail_k)` is informational (a bound
+  only for step-independent ensembles at eta = 0).
+- `tests/test_balanced_certificate.cpp`: small.pt and exact.pt, eta {0, 0.3}, stride {0, 5},
+  maxk {3, 6}: telescoping residual <= 4.5e-15, RMS <= certificate for training and validation
+  (certificate/RMS 1.07-3.3), outcomes equal independent trajectories and, for the tool output,
+  `Simulation_PT` via `add_PT`.
+- Smoke test: `smoke_PT.param` gives `|1><1|` = 0.362851 at t = 5 on this Mac on every commit
+  since Phase 0 (`7713aff`, `227baa1`, current), not the 0.516043 quoted in Phase 0 above.

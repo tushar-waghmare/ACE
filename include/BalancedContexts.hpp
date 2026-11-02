@@ -86,6 +86,10 @@ public:
 
   inline bool use_reference_rhat()const{ return rhat_mode=="reference"; }
 
+  //held-out contexts ('balanced_validation_context'): not used for the projectors,
+  //only propagated alongside to report their global error certificate
+  std::vector<BalancedContext> validation;
+
   inline size_t size()const{ return list.size(); }
   inline BalancedContext & operator[](size_t i){ return list[i]; }
   inline const BalancedContext & operator[](size_t i)const{ return list[i]; }
@@ -94,8 +98,12 @@ public:
   void add(Parameters &param, const std::string &label, double weight=1.);
 
   //reads rows 'add_balanced_context <file.param> [weight]',
+  //'balanced_validation_context <file.param> [weight]',
   //'balanced_rhat tw|reference' and 'balanced_rhat_context <file.param>'
   void setup(Parameters &param);
+
+  //contexts from rows '<key> <file.param> [weight]'
+  static std::vector<BalancedContext> read_rows(Parameters &param, const std::string &key);
 
   //sets rhat_mode and rhat_context (needs at least one context for the
   //no-intervention default); fname=="" -> no-intervention past

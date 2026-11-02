@@ -44,10 +44,12 @@ struct BalancedSweepOptions{
                         //truncated, eta>0), 'hs' (unprotected HS Schmidt values
                         //sigma(R L), eta>0); past truncated at earlier cuts
   std::vector<size_t> spectra_cuts; //cuts for spectra_file (empty: all)
+  std::string certificate_file; //CSV file with the global error certificate per
+                        //context set (training, validation) ("" = none)
 
   //reads balanced_threshold, balanced_maxk, balanced_mink, balanced_eta,
   //balanced_rtol, balanced_readout_stride, balanced_log, balanced_timing,
-  //balanced_spectra, balanced_spectra_cut (repeatable), verbosity
+  //balanced_spectra, balanced_spectra_cut (repeatable), balanced_certificate, verbosity
   void setup(Parameters &param);
   void print_info(std::ostream &os=std::cout)const;
 
@@ -81,6 +83,43 @@ struct BalancedSweepTimings{
 };
 
 /*
+  Global ensemble certificate of a forward sweep (docs/certificate_port.md;
+  Proposition "global ensemble certificate" of the manuscript). For each context c of a set (weights w_c,
+  normalized), with the hybrid past state~_k(c) (cuts < k already truncated)
+  and the exact future chi_k(c) of the sweep's INPUT PT (final-time tester):
+    e_k(c) = sum(chi_k(c) .* (state~_k(c) - state~_k(c) Y_k^T X_k^T)),
+    y(c) - y~(c) = sum_k e_k(c)                  (telescoping identity, exact),
+    sqrt(sum_c w_c |y - y~|^2) <= sum_k sqrt(paired_k),
+    paired_k = sum_c w_c |e_k(c)|^2,
+  for any projectors (oblique or not) and any correlation between past and
+  future (Hamiltonian families). The certificate refers to the final-time
+  readout and is relative to the sweep's input PT: errors of earlier stages
+  (mode merges) add by the triangle inequality. d*sum_k sqrt(tail_k) is reported
+  for comparison only; it is a bound only for step-independent ensembles and
+  eta = 0 (with eta > 0, tail refers to the blended objective).
+  Training contexts reuse the sweep's states and testers (no extra propagation);
+  validation contexts are propagated alongside (one backward and one forward
+  pass each) and do not influence the projectors.
+*/
+struct BalancedCertificate{
+  std::string set;              //"train" or "validation"
+  size_t n_contexts;
+  std::vector<double> paired;   //per cut n=0..n_tot-2 (0 at cuts without truncation)
+  double certificate;           //sum_k sqrt(paired_k)
+  double tail_bound;            //d * sum_k sqrt(tail_k) (comparison only, see above)
+  double rms_error;             //sqrt(sum_c w_c |y(c) - y~(c)|^2), final time
+  double max_identity_residual; //max_c |(y - y~) - sum_k e_k| / max(1, |y|)
+  std::vector<std::complex<double> > y, y_trunc; //final outcomes of input and truncated PT
+
+  static void print_csv_header(std::ostream &os);
+  void print_csv(std::ostream &os)const;
+  void print(std::ostream &os=std::cout)const;
+
+  BalancedCertificate() : n_contexts(0), certificate(0.), tail_bound(0.), rms_error(0.),
+    max_identity_residual(0.){}
+};
+
+/*
   Balanced final sweep of a PT calculation in bin/ACE ('balanced_final_sweep true').
   The balanced sweep is the last truncating operation: the calculation itself
   (mode merges, intermediate and final SVD sweeps) runs with 'threshold'/
@@ -108,10 +147,12 @@ public:
 
 class BalancedSweep{
 public:
-  //Modifies PTB in place (PTB must not be read-only). Returns per-cut diagnostics.
+  //Modifies PTB in place (PTB must not be read-only). Returns per-cut diagnostics;
+  //certificates (optional): training set, then validation set if any
   static std::vector<BalancedTruncationDiagnostics> sweep_forward(
       ProcessTensorBuffer &PTB, BalancedContexts &contexts,
-      const BalancedSweepOptions &opt, BalancedSweepTimings *timings=nullptr);
+      const BalancedSweepOptions &opt, BalancedSweepTimings *timings=nullptr,
+      std::vector<BalancedCertificate> *certificates=nullptr);
 
   //Inserts a single projector on bond n (used by the sweep and by tests)
   static void apply_projector(ProcessTensorBuffer &PTB, int n,

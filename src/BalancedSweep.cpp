@@ -4,6 +4,8 @@
 #include "Timings.hpp"
 #include <fstream>
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace ACE{
 
@@ -13,6 +15,81 @@ const char *BalancedSweepTimings::names[]={"setup", "future", "hs_future", "past
 static double seconds_since(const time_point &t0){
   return std::chrono::duration<double>(now()-t0).count();
 }
+
+void BalancedCertificate::print_csv_header(std::ostream &os){
+  os<<"set,n_contexts,certificate,rms_error,max_identity_residual,tail_bound"<<std::endl;
+}
+void BalancedCertificate::print_csv(std::ostream &os)const{
+  os<<set<<","<<n_contexts<<","<<certificate<<","<<rms_error<<","<<max_identity_residual
+    <<","<<tail_bound<<std::endl;
+}
+void BalancedCertificate::print(std::ostream &os)const{
+  os<<"Global error certificate ("<<set<<", "<<n_contexts<<" context(s), final time, "
+    <<"relative to the input PT): RMS error "<<rms_error<<" <= certificate "<<certificate
+    <<" (telescoping residual "<<max_identity_residual<<"; d*sum sqrt(tail) = "<<tail_bound
+    <<", a bound only for step-independent ensembles at eta=0)";
+}
+
+//Global certificate bookkeeping for one context set: F holds the final-time
+//testers [sqrt(w_c) chi_c]_c of the input PT at the current cut, so the pairings
+//below are sqrt(w_c) times the unweighted ones.
+struct CertificateAccumulator{
+  BalancedCertificate cert;
+  std::vector<double> w;
+  std::vector<std::complex<double> > sum_e;  //sum_k e_k(c) (unweighted)
+
+  void init(const std::string &set, const std::vector<double> &w_, int n_cuts){
+    cert=BalancedCertificate();
+    cert.set=set;
+    cert.n_contexts=w_.size();
+    cert.paired.assign(n_cuts, 0.);
+    cert.y.assign(w_.size(), std::numeric_limits<double>::quiet_NaN());
+    cert.y_trunc.assign(w_.size(), std::numeric_limits<double>::quiet_NaN());
+    w=w_;
+    sum_e.assign(w_.size(), 0.);
+  }
+  //y(c) = sum(chi_0(c) .* state_0(c)) at cut 0, before any insertion
+  void set_outcomes(const Eigen::MatrixXcd &F, const std::vector<Eigen::MatrixXcd> &states){
+    int NL=states[0].rows();
+    for(size_t c=0; c<states.size(); c++){
+      if(w[c]>0.){ cert.y[c]=F.middleRows(c*NL, NL).cwiseProduct(states[c]).sum()/std::sqrt(w[c]); }
+    }
+  }
+  //e_k(c) = sum(chi .* (S - S Y^T X^T)) = sum(chi .* S) - sum((chi X) .* (S Y^T))
+  double add_cut(int n, const Eigen::MatrixXcd &F, const std::vector<Eigen::MatrixXcd> &states,
+                 const Eigen::MatrixXcd &X, const Eigen::MatrixXcd &Y){
+    int NL=states[0].rows();
+    Eigen::MatrixXcd Yt=Y.transpose();
+    double paired=0.;
+    for(size_t c=0; c<states.size(); c++){
+      Eigen::MatrixXcd Fc=F.middleRows(c*NL, NL);
+      std::complex<double> e=Fc.cwiseProduct(states[c]).sum()
+                             -(Fc*X).cwiseProduct(states[c]*Yt).sum();
+      paired+=std::norm(e);
+      if(w[c]>0.){ sum_e[c]+=e/std::sqrt(w[c]); }
+    }
+    cert.paired.at(n)=paired;
+    return paired;
+  }
+  //final outcomes of the truncated PT; states at the last cut (through the truncated PT)
+  void finish(const std::vector<Eigen::MatrixXcd> &final_states, const BalancedContexts &ctx,
+              const Eigen::VectorXcd &closure_last, double tail_bound){
+    cert.certificate=0.;
+    for(double p : cert.paired){ cert.certificate+=std::sqrt(p); }
+    cert.tail_bound=tail_bound;
+    double ms=0.;
+    cert.max_identity_residual=0.;
+    for(size_t c=0; c<final_states.size(); c++){
+      cert.y_trunc[c]=BalancedFactors::readout(ctx[c], final_states[c], closure_last);
+      if(!(w[c]>0.))continue;
+      std::complex<double> dy=cert.y[c]-cert.y_trunc[c];
+      ms+=w[c]*std::norm(dy);
+      cert.max_identity_residual=std::max(cert.max_identity_residual,
+                                 std::abs(dy-sum_e[c])/std::max(1., std::abs(cert.y[c])));
+    }
+    cert.rms_error=std::sqrt(ms);
+  }
+};
 
 void BalancedSweepOptions::setup(Parameters &param){
   trunc=TruncatedSVD(param.get_as_double("balanced_threshold", 0.),
@@ -26,6 +103,7 @@ void BalancedSweepOptions::setup(Parameters &param){
   timing_file=param.get_as_string("balanced_timing", "");
   spectra_file=param.get_as_string("balanced_spectra", "");
   spectra_cuts=param.get_all_size_t("balanced_spectra_cut");
+  certificate_file=param.get_as_string("balanced_certificate", "");
   if(trunc.threshold<0. || trunc.maxk<0 || trunc.mink<0 || !(rtol>=0.) || readout_stride<0){
     std::cerr<<"BalancedSweepOptions: balanced_threshold, balanced_maxk, balanced_mink, balanced_rtol, balanced_readout_stride must be non-negative!"<<std::endl;
     throw DummyException();
@@ -46,6 +124,7 @@ void BalancedSweepOptions::print_info(std::ostream &os)const{
     <<" readout_stride="<<readout_stride;
   if(log_file!="")os<<" log='"<<log_file<<"'";
   if(spectra_file!="")os<<" spectra='"<<spectra_file<<"'";
+  if(certificate_file!="")os<<" certificate='"<<certificate_file<<"'";
   os<<std::endl;
 }
 
@@ -77,7 +156,8 @@ void BalancedSweep::apply_projector(ProcessTensorBuffer &PTB, int n,
 
 std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
       ProcessTensorBuffer &PTB, BalancedContexts &contexts,
-      const BalancedSweepOptions &opt, BalancedSweepTimings *timings){
+      const BalancedSweepOptions &opt, BalancedSweepTimings *timings,
+      std::vector<BalancedCertificate> *certificates){
 
   time_point time1=now();
   BalancedSweepTimings tm;
@@ -107,6 +187,18 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
   tp=now();
   BalancedFactors factors;
   factors.compute_future_factors(PTB, contexts, opt.verbosity, opt.readout_stride);
+  //validation contexts (certificate only): exact final-time testers of the input PT
+  BalancedContexts val;
+  val.list=contexts.validation;
+  bool use_val=!val.list.empty();
+  BalancedFactors val_factors;
+  if(use_val){
+    BalancedContexts all;
+    all.list=contexts.list;
+    all.list.insert(all.list.end(), val.list.begin(), val.list.end());
+    all.check_consistency(n_tot);
+    val_factors.compute_future_factors(PTB, val, 0, 0);
+  }
   tm.future+=seconds_since(tp);
   tp=now();
   //HS Gramians for the blend: future on the untruncated PT, past through the truncated one
@@ -123,6 +215,12 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
   std::vector<double> w=contexts.normalized_weights();
   int NL=contexts[0].get_NL();
   std::vector<Eigen::MatrixXcd> states=BalancedFactors::initial_states(PTB, contexts);
+  std::vector<Eigen::MatrixXcd> val_states;
+  if(use_val){ val_states=BalancedFactors::initial_states(PTB, val); }
+  CertificateAccumulator cert_train, cert_val;
+  cert_train.init("train", w, std::max(n_tot-1, 0));
+  if(use_val){ cert_val.init("validation", val.normalized_weights(), std::max(n_tot-1, 0)); }
+  double tail_sum=0.;   //sum_k sqrt(tail_k)
   bool use_ref=contexts.use_reference_rhat();
   Eigen::MatrixXcd ref_state;
   if(use_ref){ ref_state=BalancedFactors::initial_state(contexts.rhat_context, PTB.get(0, ForwardPreload)); }
@@ -163,7 +261,14 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
       }
       if(use_ref){ BalancedFactors::step_forward(ref_state, e, contexts.rhat_context, n); }
       if(use_blend){ L_hs=BalancedGramians::forward(L_hs, e, true); }
+      for(size_t c=0; c<val_states.size(); c++){
+        BalancedFactors::step_forward(val_states[c], e, val[c], n);
+      }
       tm.past+=seconds_since(tp);
+      if(n==0){
+        cert_train.set_outcomes(factors.get_F_pairs(0), states);
+        if(use_val){ cert_val.set_outcomes(val_factors.get_F(0), val_states); }
+      }
       tp=now();
 
       const Eigen::MatrixXcd &F=factors.get_F(n);
@@ -203,6 +308,14 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
       //to the operational factors
       tp=now();
       BalancedTruncation::set_training_diagnostics(P, A, factors.get_F_pairs(n), NL, &F);
+      if(!P.diag.no_truncation){
+        P.diag.paired=cert_train.add_cut(n, factors.get_F_pairs(n), states, P.X, P.Y);
+        if(use_val){ P.diag.paired_validation=cert_val.add_cut(n, val_factors.get_F(n), val_states, P.X, P.Y); }
+        tail_sum+=std::sqrt(std::max(P.diag.tail, 0.));
+      }else{
+        P.diag.paired=0.;
+        if(use_val){ P.diag.paired_validation=0.; }
+      }
       tm.diagnostics+=seconds_since(tp);
     }
     P.diag.cut=n;
@@ -213,6 +326,7 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
       apply_projector(PTB, n, P.X, P.Y);
       Eigen::MatrixXcd Yt=P.Y.transpose();
       for(Eigen::MatrixXcd &st : states){ st=st*Yt; }
+      for(Eigen::MatrixXcd &st : val_states){ st=st*Yt; }
       if(use_ref){ ref_state=ref_state*Yt; }
       if(use_blend){ L_hs=P.Y*L_hs; }
       tm.apply+=seconds_since(tp);
@@ -229,6 +343,38 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
     diags.push_back(P.diag);
   }
 
+  //certificates: final outcomes through the last (truncated) element
+  std::vector<BalancedCertificate> certs;
+  if(n_tot>1){
+    tp=now();
+    const ProcessTensorElement &e_last=PTB.get(n_tot-1, ForwardPreload);
+    double tail_bound=std::sqrt((double)NL)*tail_sum;
+    for(size_t a=0; a<states.size(); a++){
+      BalancedFactors::step_forward(states[a], e_last, contexts[a], n_tot-1);
+    }
+    cert_train.finish(states, contexts, e_last.closure, tail_bound);
+    certs.push_back(cert_train.cert);
+    if(use_val){
+      for(size_t c=0; c<val_states.size(); c++){
+        BalancedFactors::step_forward(val_states[c], e_last, val[c], n_tot-1);
+      }
+      cert_val.finish(val_states, val, e_last.closure, tail_bound);
+      certs.push_back(cert_val.cert);
+    }
+    tm.diagnostics+=seconds_since(tp);
+  }
+  if(opt.certificate_file!=""){
+    std::ofstream ofs_cert(opt.certificate_file.c_str());
+    if(!ofs_cert){
+      std::cerr<<"BalancedSweep::sweep_forward: cannot open '"<<opt.certificate_file<<"'!"<<std::endl;
+      throw DummyException();
+    }
+    ofs_cert.precision(12);
+    BalancedCertificate::print_csv_header(ofs_cert);
+    for(const BalancedCertificate &c : certs){ c.print_csv(ofs_cert); }
+  }
+  if(certificates)*certificates=certs;
+
   tm.total=seconds_since(time1);
   if(timings)*timings=tm;
   if(opt.verbosity>0){
@@ -241,6 +387,7 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
              <<", max ||X||*||Y|| "<<max_amp<<", max |YX-I| "<<max_YX
              <<", max |s-1| "<<max_s
              <<", runtime "<<time_diff(now()-time1)<<"ms"<<std::endl;
+    for(const BalancedCertificate &c : certs){ c.print(); std::cout<<std::endl; }
   }
   return diags;
 }
@@ -268,16 +415,20 @@ void BalancedFinalSweep::setup(Parameters &param, const TimeGrid &tgrid){
     std::cerr<<"balanced_final_sweep: please specify at least one 'add_balanced_context'!"<<std::endl;
     throw DummyException();
   }
-  for(size_t a=0; a<contexts.size(); a++){
-    const TimeGrid &tg=contexts[a].tgrid;
+  std::vector<BalancedContext *> to_check;
+  for(size_t a=0; a<contexts.size(); a++){ to_check.push_back(&contexts[a]); }
+  for(BalancedContext &c : contexts.validation){ to_check.push_back(&c); }
+  for(BalancedContext *cp : to_check){
+    const BalancedContext &ctx=*cp;
+    const TimeGrid &tg=ctx.tgrid;
     if(tg.n_tot<tgrid.n_tot){
-      std::cerr<<"balanced_final_sweep: context '"<<contexts[a].label<<"' has n_tot="<<tg.n_tot
+      std::cerr<<"balanced_final_sweep: context '"<<ctx.label<<"' has n_tot="<<tg.n_tot
                <<" < "<<tgrid.n_tot<<" steps of the PT calculation!"<<std::endl;
       throw DummyException();
     }
     for(int n=0; n<tgrid.n_tot; n++){
       if(std::abs(tg.get_t(n)-tgrid.get_t(n))>1e-10 || std::abs(tg.get_dt(n)-tgrid.get_dt(n))>1e-10){
-        std::cerr<<"balanced_final_sweep: time grid of context '"<<contexts[a].label
+        std::cerr<<"balanced_final_sweep: time grid of context '"<<ctx.label
                  <<"' differs from the PT calculation at step "<<n<<"!"<<std::endl;
         throw DummyException();
       }

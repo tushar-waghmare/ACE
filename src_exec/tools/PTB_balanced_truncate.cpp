@@ -27,6 +27,12 @@
                          0: final time only)
     balanced_log         CSV file with per-cut diagnostics
     balanced_timing      CSV file with the wall-clock time per phase (phase,seconds)
+    balanced_validation_context <file.param> [weight]   (repeat; held-out contexts,
+                         not used for the projectors; their global error certificate
+                         is reported separately)
+    balanced_certificate CSV file with the global error certificate (final time,
+                         relative to read_PT) per context set: set,n_contexts,
+                         certificate,rms_error,max_identity_residual,tail_bound
     buffer_blocksize     block size of the output PT (default: single file)
     verbosity            0, 1 (default), 2 (one line per cut)
 */

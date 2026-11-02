@@ -6,6 +6,7 @@ truncation*: bond truncation that minimizes the error for a specified ensemble o
 with the PT closure protected exactly.
 
 Current task and full plan: @docs/balanced_truncation_plan.md
+Global error certificate (ported, see plan Section 7): @docs/certificate_port.md
 
 ## Build and run
 
