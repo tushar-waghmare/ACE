@@ -23,7 +23,10 @@ Metrics per row: rms_final (RMS over contexts of the final-time observable error
 rms_trace (RMS over contexts and times of the observable time trace error),
 max_trace_err (max |tr rho_S(t) - 1|), max_population_drift (max |rho_11(t) - rho_11(0)|,
 exactly 0 for pure dephasing), maxdim, hs_rel (||T - T_trunc||_HS / ||T||_HS), runtime_s, and for balanced runs
-max/median ||X||*||Y|| and the sum of local operational errors.
+max/median ||X||*||Y|| and the sum of local operational errors; certificate_train (balanced runs, training
+row only): global ensemble certificate of the sweep, an upper bound on that row's rms_final (equal weights,
+final time, relative to the input PT; free since pasts and futures use the same training list;
+balanced_<maxk>_<eta>_cert.csv).
 """
 import argparse
 import csv
@@ -196,6 +199,14 @@ def balanced_stats(logfile):
     return max(amps), statistics.median(amps), local
 
 
+def training_certificate(certfile):
+    with open(certfile) as f:
+        for row in csv.DictReader(f):
+            if row['set'] == 'train':
+                return float(row['certificate'])
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--pt', required=True, help='input PT (reference)')
@@ -316,7 +327,7 @@ def run_seed(a, seed, out):
 
     rows = []
 
-    def record(method, maxk, eta, pt, runtime, stats=(None, None, None)):
+    def record(method, maxk, eta, pt, runtime, stats=(None, None, None), certificate=None):
         res = evaluate(pt, os.path.basename(pt))
         md = maxdim_of(pt)
         hs = hs_rel(pt_in, pt)
@@ -328,7 +339,8 @@ def run_seed(a, seed, out):
                              maxdim=md, hs_rel=hs, runtime_s=runtime,
                              max_amplification='' if stats[0] is None else stats[0],
                              median_amplification='' if stats[1] is None else stats[1],
-                             sum_local_error='' if stats[2] is None else stats[2]))
+                             sum_local_error='' if stats[2] is None else stats[2],
+                             certificate_train='' if certificate is None or split != 'train' else certificate))
             print(f"  {method:9s} maxk={maxk:3d} eta={'' if eta is None else eta!s:4s} {split:5s}: "
                   f"rms_final={rf:.3e} rms_trace={rt:.3e} trace_err={te_:.1e} drift={dr:.1e} maxdim={md}", flush=True)
 
@@ -360,16 +372,17 @@ def run_seed(a, seed, out):
         for eta in a.eta:
             bal_pt = os.path.join(out, f'balanced_{maxk}_{eta}.pt')
             log = os.path.join(out, f'balanced_{maxk}_{eta}.csv')
+            cert = os.path.join(out, f'balanced_{maxk}_{eta}_cert.csv')
             cmd = [os.path.join(TOOLS, 'PTB_balanced_truncate'), '-read_PT', pt_in, '-write_PT', bal_pt,
                    '-balanced_maxk', str(maxk), '-balanced_eta', str(eta), '-balanced_rhat', a.rhat,
                    '-balanced_readout_stride', str(a.readout_stride),
-                   '-balanced_log', log, '-verbosity', '0']
+                   '-balanced_log', log, '-balanced_certificate', cert, '-verbosity', '0']
             if a.buffer_blocksize > 0:
                 cmd += ['-buffer_blocksize', str(a.buffer_blocksize)]
             for c in names['train']:
                 cmd += ['-add_balanced_context', c]
             t_b, _ = run(cmd)
-            record('balanced', maxk, eta, bal_pt, t_b, balanced_stats(log))
+            record('balanced', maxk, eta, bal_pt, t_b, balanced_stats(log), training_certificate(cert))
         if not a.keep_pts:
             for f in os.listdir(out):
                 if is_pt_file(f) and f.startswith(('balanced_',) if a.svd_dir else ('svd_', 'balanced_')):
