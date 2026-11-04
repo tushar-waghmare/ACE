@@ -200,6 +200,12 @@ def balanced_stats(logfile):
 
 
 def training_certificate(certfile):
+    # a missing file means a PTB_balanced_truncate built before the certificate (cf1687d), which
+    # ignores the unknown parameter: keep the run's results, leave certificate_train empty
+    if not os.path.exists(certfile):
+        print(f"WARNING: {certfile} not written (stale PTB_balanced_truncate build?); "
+              "certificate_train left empty", file=sys.stderr, flush=True)
+        return None
     with open(certfile) as f:
         for row in csv.DictReader(f):
             if row['set'] == 'train':

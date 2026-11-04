@@ -26,6 +26,7 @@ echo "commit:     $(git -C "$ACE_BAL_HOME" rev-parse --short HEAD)"
 echo "EIGEN_HOME: $EIGEN_HOME"
 echo "MKLROOT:    ${MKLROOT:-<unset: building without MKL>}"
 cd "$ACE_BAL_HOME"
+rm -f lib/*.o   # the Makefile has no header dependency tracking: a changed header struct needs a clean build
 make -j 8 EIGEN_HOME="$EIGEN_HOME" MKLROOT="${MKLROOT:-}"   # 'all' = library, bin/ACE and tools
 for b in bin/ACE tools/PTB_join tools/PTB_balanced_truncate tools/PTB_sweep_forward tools/PTB_sweep_backward \
          tools/PTB_analyze tools/PTB_HS_distance; do
