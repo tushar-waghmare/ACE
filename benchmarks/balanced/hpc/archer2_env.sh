@@ -14,7 +14,8 @@ PYTHON="${PYTHON:-python3}"
 
 # Eigen include dir: EIGEN_HOME if set, else the usual module variables
 if [[ -z "${EIGEN_HOME:-}" ]]; then
-  for d in "${EIGEN_ROOT:-}" "${EIGEN_DIR:-}" "${EIGEN3_ROOT:-}"; do
+  # module variables, then CPATH entries (the ARCHER2 eigen/3.4.0 module only sets CPATH)
+  for d in "${EIGEN_ROOT:-}" "${EIGEN_DIR:-}" "${EIGEN3_ROOT:-}" $(echo "${CPATH:-}" | tr ':' ' '); do
     for sub in include/eigen3 include ""; do
       if [[ -n "$d" && -f "$d/$sub/Eigen/Eigen" ]]; then export EIGEN_HOME="$d/$sub"; break 2; fi
     done
