@@ -190,7 +190,8 @@ double BalancedGramians::log_hs_norm(ProcessTensorBuffer &PTB){
   return lg;
 }
 
-HSDistance BalancedGramians::hs_distance(ProcessTensorBuffer &PTB1, ProcessTensorBuffer &PTB2){
+HSDistance BalancedGramians::hs_distance(ProcessTensorBuffer &PTB1, ProcessTensorBuffer &PTB2,
+                                         const double *log_norm1){
   check_open_ends(PTB1, "BalancedGramians::hs_distance");
   check_open_ends(PTB2, "BalancedGramians::hs_distance");
   int n_tot=PTB1.get_n_tot();
@@ -199,7 +200,7 @@ HSDistance BalancedGramians::hs_distance(ProcessTensorBuffer &PTB1, ProcessTenso
     throw DummyException();
   }
   HSDistance ret;
-  ret.log_norm1=log_hs_norm(PTB1);
+  ret.log_norm1 = log_norm1 ? *log_norm1 : log_hs_norm(PTB1);
   ret.log_norm2=log_hs_norm(PTB2);
 
   Eigen::MatrixXcd L=Eigen::MatrixXcd::Ones(1,1);

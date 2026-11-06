@@ -73,7 +73,10 @@ public:
   //orthogonalized by the same QR recursion (no cancellation between
   //||PT1||^2 + ||PT2||^2 - 2 Re <PT1, PT2>). Both PTs need the same time
   //grid and dictionaries, d1=1 on the first and d2=1 on the last element.
-  static HSDistance hs_distance(ProcessTensorBuffer &PTB1, ProcessTensorBuffer &PTB2);
+  //log_norm1 (optional): log ||PT1||_HS from an earlier log_hs_norm(PTB1) of the
+  //same PT (skips that pass; the result is identical)
+  static HSDistance hs_distance(ProcessTensorBuffer &PTB1, ProcessTensorBuffer &PTB2,
+                                const double *log_norm1=nullptr);
 
   //backward pass -> Rf
   void compute_future(ProcessTensorBuffer &PTB, bool normalize=true);

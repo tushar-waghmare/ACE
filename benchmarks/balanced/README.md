@@ -75,3 +75,21 @@ tighter reference; `run_benchmark.py --contexts_only` regenerates the seeded con
 
 Multiple baths: join first (`tools/PTB_join -initial_PT X.pt -add_PT Y.pt -only_join true`, same
 order as `add_PT X add_PT Y`), then truncate the joined PT with `PTB_balanced_truncate`.
+
+## Large PTs: staged grid (joined cavity x bench30, D <= 1620, 68 GB)
+
+`run_benchmark.py` options that leave every number unchanged (bitwise: `tests/test_balanced_stream_cache.cpp`;
+smoke and D = 550 runs reproduce earlier `results.csv` exactly):
+`--batched` (`tools/PTB_simulate_contexts`: one pass over the PT per chunk of contexts, output files
+identical to `bin/ACE`), `--stream` (`PTB_balanced_truncate -stream true`: no full working copy of the
+input PT), `--cache_dir` (maxk/eta-independent quantities computed once: operational future factors per
+training set, HS future factors, log ||T||_HS for `hs_rel`, maxdim), `--stage prep|svd|balanced`
+(per-arm results `results_svd.csv`, `results_balanced.csv`; `hpc/merge_results.py` merges), `--eta_jobs`.
+Every run writes `timings.csv` (seconds per phase) and `balanced_<maxk>_<eta>_timing.csv`, and refuses
+tools not built from the checked-out sources (build stamp, `-build_info true`; `--allow_stale_build`).
+
+ARCHER2 (`hpc/`): `sbatch joined_grid_validate.slurm` (seed 1, maxk 4 through the new path, compared with
+the earlier `results.csv`; must print REPRODUCED), then `bash submit_grid.sh`: prep (per seed:
+reference + caches) -> SVD arm (per maxk, `%1`: the only stage that needs a 68 GB working copy) and
+balanced arm (one task per (seed, maxk), done ones skipped). `compare_results.py OLD NEW` compares two
+result sets row by row.

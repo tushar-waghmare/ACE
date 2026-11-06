@@ -397,3 +397,21 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   Linux reference bundle). With them the Mac build (Apple clang -O3, arm64, Eigen 3.4.0) reproduces
   the Linux reference (g++ -O1, x86_64) to <= 1e-13 at all times: 0.516043, 0.516049 at threshold
   1e-7, 0.536265 without phonons, Maxdim 17 at 16. No platform discrepancy.
+
+### Implementation notes (2026-11-06): benchmark throughput on the 68 GB joined PT
+
+- Job 15833591 (seed 1, run_seed_parallel.sh, MAX_PARALLEL=1) needed ~10.7 h per maxk, so one seed
+  (6 maxk) exceeds the 24 h limit three times over. Changes, all bitwise result-preserving (no change
+  to X/Y numerics or to default behaviour): streaming balanced sweep (`-stream true`: read-only input,
+  truncated elements appended to the output; the in-place path uses the same element-level helpers),
+  binary caches of the operational future factors (per training set) and HS future factors (per PT),
+  keyed by fingerprints of PT and contexts and rejected on mismatch, `PTB_HS_distance -log_norm_A`
+  (log ||T_in||_HS once per PT instead of once per method), `PTB_simulate_contexts` (all contexts in one
+  pass over the PT, same propagation code and OutputPrinter as bin/ACE; files byte-identical), build
+  stamp in the tools checked by run_benchmark.py (the Nov 4 failures came from a stale ARCHER2 build).
+  Local D = 550 timing (eta 0.3, maxk 8, 189 s): futures 15 %, HS futures 16 % (now cached), per-cut
+  SVDs (noise floor, core, projector diagnostics) 52 % (unchanged: accuracy first).
+- HPC layout: prep (per seed) -> SVD arm (per maxk, one at a time: needs the only 68 GB working copy) and
+  balanced arm (one array task per (seed, maxk), skip if done). Validation before use: seed 1 maxk 4
+  through the new path must reproduce the earlier results.csv (`joined_grid_validate.slurm`).
+

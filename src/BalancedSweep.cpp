@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <cstdint>
+#include <cstdio>
+#include <unistd.h>
 
 namespace ACE{
 
@@ -104,6 +107,16 @@ void BalancedSweepOptions::setup(Parameters &param){
   spectra_file=param.get_as_string("balanced_spectra", "");
   spectra_cuts=param.get_all_size_t("balanced_spectra_cut");
   certificate_file=param.get_as_string("balanced_certificate", "");
+  future_cache=param.get_as_string("balanced_future_cache", "");
+  hs_cache=param.get_as_string("balanced_hs_cache", "");
+  cache_only=param.get_as_bool("balanced_cache_only", false);
+  if(cache_only){
+    if(future_cache=="" && hs_cache==""){
+      std::cerr<<"BalancedSweepOptions: 'balanced_cache_only' needs 'balanced_future_cache' and/or 'balanced_hs_cache'!"<<std::endl;
+      throw DummyException();
+    }
+    return;  //no truncation parameters needed
+  }
   if(trunc.threshold<0. || trunc.maxk<0 || trunc.mink<0 || !(rtol>=0.) || readout_stride<0){
     std::cerr<<"BalancedSweepOptions: balanced_threshold, balanced_maxk, balanced_mink, balanced_rtol, balanced_readout_stride must be non-negative!"<<std::endl;
     throw DummyException();
@@ -125,7 +138,34 @@ void BalancedSweepOptions::print_info(std::ostream &os)const{
   if(log_file!="")os<<" log='"<<log_file<<"'";
   if(spectra_file!="")os<<" spectra='"<<spectra_file<<"'";
   if(certificate_file!="")os<<" certificate='"<<certificate_file<<"'";
+  if(future_cache!="")os<<" future_cache='"<<future_cache<<"'";
+  if(hs_cache!="")os<<" hs_cache='"<<hs_cache<<"'";
+  if(cache_only)os<<" (cache only)";
   os<<std::endl;
+}
+
+void BalancedSweep::apply_projector_right(ProcessTensorElement &e,
+                                          const Eigen::MatrixXcd &X, const Eigen::MatrixXcd &Y){
+  if(X.rows()!=e.M.dim_d2 || Y.cols()!=e.M.dim_d2 || X.cols()!=Y.rows()){
+    std::cerr<<"BalancedSweep::apply_projector: dimension mismatch!"<<std::endl;
+    throw DummyException();
+  }
+  PassOn pass_on;
+  pass_on.P=X.transpose();
+  pass_on.Pinv=Y.transpose();
+  e.M.inner_multiply_right(pass_on.Pinv);
+  if(e.closure.size()==X.rows()){ e.closure=pass_on.P*e.closure; }
+  e.env_ops.process_forward(pass_on);
+  e.clearNF();
+}
+
+void BalancedSweep::apply_projector_left(ProcessTensorElement &e, const Eigen::MatrixXcd &X){
+  if(X.rows()!=e.M.dim_d1){
+    std::cerr<<"BalancedSweep::apply_projector: dimension mismatch (next element)!"<<std::endl;
+    throw DummyException();
+  }
+  e.M.inner_multiply_left(X.transpose());
+  e.clearNF();
 }
 
 void BalancedSweep::apply_projector(ProcessTensorBuffer &PTB, int n,
@@ -134,63 +174,254 @@ void BalancedSweep::apply_projector(ProcessTensorBuffer &PTB, int n,
     std::cerr<<"BalancedSweep::apply_projector: bond "<<n<<" out of range!"<<std::endl;
     throw DummyException();
   }
-  {
-    ProcessTensorElement &e=PTB.get(n, ForwardPreload);
-    if(X.rows()!=e.M.dim_d2 || Y.cols()!=e.M.dim_d2 || X.cols()!=Y.rows()){
-      std::cerr<<"BalancedSweep::apply_projector: dimension mismatch at bond "<<n<<"!"<<std::endl;
-      throw DummyException();
-    }
-    PassOn pass_on;
-    pass_on.P=X.transpose();
-    pass_on.Pinv=Y.transpose();
-    e.M.inner_multiply_right(pass_on.Pinv);
-    if(e.closure.size()==X.rows()){ e.closure=pass_on.P*e.closure; }
-    e.env_ops.process_forward(pass_on);
-    e.clearNF();
-  }
-  //separate scope: 'get' may load another block
-  ProcessTensorElement &e2=PTB.get(n+1, ForwardPreload);
-  e2.M.inner_multiply_left(X.transpose());
-  e2.clearNF();
+  apply_projector_right(PTB.get(n, ForwardPreload), X, Y);
+  //separate call: 'get' may load another block
+  apply_projector_left(PTB.get(n+1, ForwardPreload), X);
 }
+
+/*
+  Caches of maxk/eta-independent future factors (binary, native byte order).
+  A cache records fingerprints of the PT (dimensions, dictionaries, closures and
+  a sample of every element) and, for operational futures, of the contexts
+  (normalized weights, initial states, observables, tabulated system steps) and
+  the readout stride. It is used only if all of them match; otherwise it is
+  recomputed and overwritten (written to a temporary file, then renamed, so
+  concurrent writers of the same cache are safe). Matrices are stored bitwise,
+  so results with and without cache are identical.
+*/
+namespace{
+
+struct Hasher{  //FNV-1a, 64 bit
+  uint64_t h=1469598103934665603ULL;
+  void bytes(const void *p, size_t n){
+    const unsigned char *c=(const unsigned char*)p;
+    for(size_t i=0; i<n; i++){ h^=c[i]; h*=1099511628211ULL; }
+  }
+  void i64(int64_t x){ bytes(&x, sizeof(x)); }
+  void d(double x){ bytes(&x, sizeof(x)); }
+  void mat(const Eigen::MatrixXcd &M){
+    i64(M.rows()); i64(M.cols());
+    bytes(M.data(), sizeof(std::complex<double>)*M.size());
+  }
+};
+
+void hash_element(Hasher &H, const ProcessTensorElement &e){
+  H.i64(e.M.dim_d1); H.i64(e.M.dim_i); H.i64(e.M.dim_d2);
+  const std::vector<int> &beta=e.accessor.dict.beta;
+  H.i64(beta.size());
+  if(!beta.empty())H.bytes(beta.data(), sizeof(int)*beta.size());
+  H.i64(e.closure.size());
+  if(e.closure.size()>0)H.bytes(e.closure.data(), sizeof(std::complex<double>)*e.closure.size());
+  //sample of the element: 257 entries spread over the whole tensor
+  int64_t size=(int64_t)e.M.dim_d1*e.M.dim_i*e.M.dim_d2;
+  for(int k=0; k<=256 && size>0; k++){
+    int64_t idx=(size-1)*k/256;
+    H.bytes(&e.M.mem[idx], sizeof(std::complex<double>));
+  }
+}
+
+uint64_t hash_contexts(const BalancedContexts &ctx, int n_tot){
+  Hasher H;
+  std::vector<double> w=ctx.normalized_weights();
+  H.i64(ctx.size());
+  for(size_t c=0; c<ctx.size(); c++){
+    H.d(w[c]);
+    H.mat(ctx[c].initial_vector());
+    H.mat(ctx[c].observable_vector());
+    for(int n=0; n<n_tot; n++){ H.mat(ctx[c].S_first.at(n)); H.mat(ctx[c].S_second.at(n)); }
+  }
+  return H.h;
+}
+
+const char cache_magic_op[8]={'A','C','E','B','F','O','P','1'};
+const char cache_magic_hs[8]={'A','C','E','B','F','H','S','1'};
+
+void write_i64(std::ostream &os, int64_t x){ os.write((const char*)&x, sizeof(x)); }
+int64_t read_i64(std::istream &is){ int64_t x=0; is.read((char*)&x, sizeof(x)); return x; }
+void write_mat(std::ostream &os, const Eigen::MatrixXcd &M){
+  write_i64(os, M.rows()); write_i64(os, M.cols());
+  os.write((const char*)M.data(), sizeof(std::complex<double>)*M.size());
+}
+bool read_mat(std::istream &is, Eigen::MatrixXcd &M){
+  int64_t r=read_i64(is), c=read_i64(is);
+  if(!is || r<0 || c<0 || r>(1<<24) || c>(1<<24))return false;
+  M.resize(r, c);
+  is.read((char*)M.data(), sizeof(std::complex<double>)*M.size());
+  return (bool)is;
+}
+
+//header: magic, PT hash, n_tot, key (contexts hash or 0), stride
+void write_cache_header(std::ostream &os, const char *magic, uint64_t pt_hash, int n_tot,
+                        uint64_t key, int stride){
+  os.write(magic, 8);
+  write_i64(os, (int64_t)pt_hash); write_i64(os, n_tot);
+  write_i64(os, (int64_t)key); write_i64(os, stride);
+}
+bool check_cache_header(std::istream &is, const char *magic, uint64_t pt_hash, int n_tot,
+                        uint64_t key, int stride, const std::string &fname, int verbosity){
+  char m[8];
+  is.read(m, 8);
+  if(!is || !std::equal(m, m+8, magic)){
+    if(verbosity>0)std::cout<<"Cache '"<<fname<<"': wrong file type, recomputing"<<std::endl;
+    return false;
+  }
+  uint64_t h=(uint64_t)read_i64(is);
+  int64_t n=read_i64(is);
+  uint64_t k=(uint64_t)read_i64(is);
+  int64_t st=read_i64(is);
+  if(!is || h!=pt_hash || n!=n_tot || k!=key || st!=stride){
+    std::cout<<"Cache '"<<fname<<"' does not match this PT/contexts/readout stride: recomputing"<<std::endl;
+    return false;
+  }
+  return true;
+}
+
+void finish_cache_file(std::ofstream &ofs, const std::string &tmp, const std::string &fname){
+  ofs.close();
+  if(!ofs){
+    std::remove(tmp.c_str());
+    std::cerr<<"BalancedSweep: writing cache '"<<fname<<"' failed!"<<std::endl;
+    throw DummyException();
+  }
+  if(std::rename(tmp.c_str(), fname.c_str())!=0){
+    std::remove(tmp.c_str());
+    std::cerr<<"BalancedSweep: cannot rename '"<<tmp<<"' to '"<<fname<<"'!"<<std::endl;
+    throw DummyException();
+  }
+}
+
+std::string tmp_name(const std::string &fname){
+  return fname+".tmp"+std::to_string((long)getpid());
+}
+
+bool load_op_cache(const std::string &fname, uint64_t pt_hash, int n_tot, uint64_t key,
+                   int stride, BalancedFactors &f, int verbosity){
+  std::ifstream is(fname.c_str(), std::ios::binary);
+  if(!is)return false;
+  if(!check_cache_header(is, cache_magic_op, pt_hash, n_tot, key, stride, fname, verbosity))return false;
+  BalancedFactors g;
+  g.readout_stride=stride;
+  g.F.resize(n_tot);
+  if(stride>0)g.F_pairs.resize(n_tot);
+  for(int n=0; n<n_tot; n++){
+    if(!read_mat(is, g.F[n]) || (stride>0 && !read_mat(is, g.F_pairs[n]))){
+      std::cout<<"Cache '"<<fname<<"' truncated: recomputing"<<std::endl;
+      return false;
+    }
+  }
+  f=g;
+  if(verbosity>0)std::cout<<"BalancedFactors: future factors loaded from cache '"<<fname<<"'"<<std::endl;
+  return true;
+}
+void save_op_cache(const std::string &fname, uint64_t pt_hash, int n_tot, uint64_t key,
+                   const BalancedFactors &f){
+  std::string tmp=tmp_name(fname);
+  std::ofstream os(tmp.c_str(), std::ios::binary);
+  if(!os){
+    std::cerr<<"BalancedSweep: cannot write cache '"<<tmp<<"'!"<<std::endl;
+    throw DummyException();
+  }
+  write_cache_header(os, cache_magic_op, pt_hash, n_tot, key, f.readout_stride);
+  for(int n=0; n<n_tot; n++){
+    write_mat(os, f.F.at(n));
+    if(f.readout_stride>0)write_mat(os, f.F_pairs.at(n));
+  }
+  finish_cache_file(os, tmp, fname);
+}
+
+bool load_hs_cache(const std::string &fname, uint64_t pt_hash, int n_tot,
+                   BalancedGramians &g, int verbosity){
+  std::ifstream is(fname.c_str(), std::ios::binary);
+  if(!is)return false;
+  if(!check_cache_header(is, cache_magic_hs, pt_hash, n_tot, 0, 0, fname, verbosity))return false;
+  std::vector<Eigen::MatrixXcd> Rf(n_tot);
+  for(int n=0; n<n_tot; n++){
+    if(!read_mat(is, Rf[n])){
+      std::cout<<"Cache '"<<fname<<"' truncated: recomputing"<<std::endl;
+      return false;
+    }
+  }
+  g.Rf.swap(Rf);
+  if(verbosity>0)std::cout<<"BalancedGramians: HS future factors loaded from cache '"<<fname<<"'"<<std::endl;
+  return true;
+}
+void save_hs_cache(const std::string &fname, uint64_t pt_hash, int n_tot, const BalancedGramians &g){
+  std::string tmp=tmp_name(fname);
+  std::ofstream os(tmp.c_str(), std::ios::binary);
+  if(!os){
+    std::cerr<<"BalancedSweep: cannot write cache '"<<tmp<<"'!"<<std::endl;
+    throw DummyException();
+  }
+  write_cache_header(os, cache_magic_hs, pt_hash, n_tot, 0, 0);
+  for(int n=0; n<n_tot; n++){ write_mat(os, g.Rf.at(n)); }
+  finish_cache_file(os, tmp, fname);
+}
+
+}//namespace
 
 std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
       ProcessTensorBuffer &PTB, BalancedContexts &contexts,
       const BalancedSweepOptions &opt, BalancedSweepTimings *timings,
-      std::vector<BalancedCertificate> *certificates){
+      std::vector<BalancedCertificate> *certificates, ProcessTensorBuffer *out){
 
   time_point time1=now();
   BalancedSweepTimings tm;
   time_point tp=now();
-  if(PTB.read_only){
+  bool stream=(out!=nullptr);
+  if(PTB.read_only && !stream && !opt.cache_only){
     std::cerr<<"BalancedSweep::sweep_forward: PT is read-only!"<<std::endl;
+    throw DummyException();
+  }
+  if(stream && (out==&PTB || out->get_n_tot()!=0)){
+    std::cerr<<"BalancedSweep::sweep_forward: the output buffer must be empty and differ from the input!"<<std::endl;
     throw DummyException();
   }
   if(opt.eta<0. || opt.eta>1.){
     std::cerr<<"BalancedSweep::sweep_forward: eta="<<opt.eta<<" not in [0,1]!"<<std::endl;
     throw DummyException();
   }
-  BalancedFactors::check_PT(PTB, contexts);
+  bool need_op = !opt.cache_only || opt.future_cache!="";  //contexts needed
+  if(need_op){
+    BalancedFactors::check_PT(PTB, contexts);
+  }else if(PTB.TTree || PTB.get_n_tot()<1){
+    std::cerr<<"BalancedSweep::sweep_forward: PT has no elements or a CompressionTree!"<<std::endl;
+    throw DummyException();
+  }
   int n_tot=PTB.get_n_tot();
+  Hasher pt_hasher;  //fingerprint of the input PT for the caches
+  pt_hasher.i64(n_tot);
   for(int n=0; n<n_tot; n++){
     const ProcessTensorElement &e=PTB.get(n, ForwardPreload);
     if(e.closure.size()!=e.M.dim_d2){
       std::cerr<<"BalancedSweep::sweep_forward: element "<<n<<" has no closure (size "<<e.closure.size()<<" vs. dim_d2="<<e.M.dim_d2<<")!"<<std::endl;
       throw DummyException();
     }
+    hash_element(pt_hasher, e);
   }
-  contexts.tabulate_steps(n_tot);
-  if(opt.verbosity>0){ contexts.print_info(); opt.print_info(); }
+  uint64_t pt_hash=pt_hasher.h;
+  if(need_op){ contexts.tabulate_steps(n_tot); }
+  if(opt.verbosity>0){ if(need_op)contexts.print_info(); opt.print_info(); }
   tm.setup+=seconds_since(tp);
 
-  //1. future factors on the untruncated PT
+  //1. future factors on the untruncated PT (maxk/eta independent: optionally cached)
   tp=now();
   BalancedFactors factors;
-  factors.compute_future_factors(PTB, contexts, opt.verbosity, opt.readout_stride);
+  if(need_op){
+    uint64_t ctx_hash=hash_contexts(contexts, n_tot);
+    int stride=std::max(opt.readout_stride, 0);
+    if(opt.future_cache=="" ||
+       !load_op_cache(opt.future_cache, pt_hash, n_tot, ctx_hash, stride, factors, opt.verbosity)){
+      factors.compute_future_factors(PTB, contexts, opt.verbosity, opt.readout_stride);
+      if(opt.future_cache!=""){
+        save_op_cache(opt.future_cache, pt_hash, n_tot, ctx_hash, factors);
+        if(opt.verbosity>0)std::cout<<"BalancedFactors: future factors written to cache '"<<opt.future_cache<<"'"<<std::endl;
+      }
+    }
+  }
   //validation contexts (certificate only): exact final-time testers of the input PT
   BalancedContexts val;
   val.list=contexts.validation;
-  bool use_val=!val.list.empty();
+  bool use_val=!val.list.empty() && !opt.cache_only;
   BalancedFactors val_factors;
   if(use_val){
     BalancedContexts all;
@@ -202,14 +433,30 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
   tm.future+=seconds_since(tp);
   tp=now();
   //HS Gramians for the blend: future on the untruncated PT, past through the truncated one
-  bool use_blend=(opt.eta>0.);
+  bool use_blend=(opt.eta>0.) && !opt.cache_only;
   BalancedGramians gramians;
   Eigen::MatrixXcd L_hs;  //Wp_hs = L L^dagger (normalized; Pi is scale invariant)
+  bool need_hs = opt.cache_only ? (opt.hs_cache!="") : use_blend;
+  if(need_hs){
+    if(opt.hs_cache=="" || !load_hs_cache(opt.hs_cache, pt_hash, n_tot, gramians, opt.verbosity)){
+      gramians.compute_future(PTB, true);
+      if(opt.hs_cache!=""){
+        save_hs_cache(opt.hs_cache, pt_hash, n_tot, gramians);
+        if(opt.verbosity>0)std::cout<<"BalancedGramians: HS future factors written to cache '"<<opt.hs_cache<<"'"<<std::endl;
+      }
+    }
+  }
   if(use_blend){
-    gramians.compute_future(PTB, true);
     L_hs=BalancedGramians::initial_L(PTB.get(0, ForwardPreload));
   }
   tm.hs_future+=seconds_since(tp);
+  if(opt.cache_only){
+    tm.total=seconds_since(time1);
+    if(timings)*timings=tm;
+    if(certificates)certificates->clear();
+    if(opt.verbosity>0)std::cout<<"Balanced sweep: caches written (cache only), runtime "<<time_diff(now()-time1)<<"ms"<<std::endl;
+    return std::vector<BalancedTruncationDiagnostics>();
+  }
 
   //2. forward pass
   std::vector<double> w=contexts.normalized_weights();
@@ -251,11 +498,15 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
   std::vector<BalancedTruncationDiagnostics> diags;
   int maxdim_in=1, maxdim_out=1;
   double max_amp=0., max_YX=0., max_s=0., sum_local=0.;
+  //streaming: 'cur' is element n of the output in the making (left factor of
+  //cut n-1 already applied); it is appended to *out once cut n is done
+  ProcessTensorElement cur;
+  if(stream && n_tot>0){ cur=PTB.get(0, ForwardPreload); }
   for(int n=0; n<n_tot-1; n++){
     BalancedProjector P;
     {
       tp=now();
-      ProcessTensorElement &e=PTB.get(n, ForwardPreload);
+      ProcessTensorElement &e = stream ? cur : PTB.get(n, ForwardPreload);
       for(size_t a=0; a<contexts.size(); a++){
         BalancedFactors::step_forward(states[a], e, contexts[a], n);
       }
@@ -323,12 +574,24 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
 
     if(!P.diag.no_truncation){
       tp=now();
-      apply_projector(PTB, n, P.X, P.Y);
+      if(stream){
+        apply_projector_right(cur, P.X, P.Y);
+        out->push_back(cur);
+        cur=PTB.get(n+1, ForwardPreload);
+        apply_projector_left(cur, P.X);
+      }else{
+        apply_projector(PTB, n, P.X, P.Y);
+      }
       Eigen::MatrixXcd Yt=P.Y.transpose();
       for(Eigen::MatrixXcd &st : states){ st=st*Yt; }
       for(Eigen::MatrixXcd &st : val_states){ st=st*Yt; }
       if(use_ref){ ref_state=ref_state*Yt; }
       if(use_blend){ L_hs=P.Y*L_hs; }
+      tm.apply+=seconds_since(tp);
+    }else if(stream){
+      tp=now();
+      out->push_back(cur);
+      cur=PTB.get(n+1, ForwardPreload);
       tm.apply+=seconds_since(tp);
     }
     int D_out = P.diag.no_truncation ? P.diag.D : P.diag.m;
@@ -347,7 +610,7 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
   std::vector<BalancedCertificate> certs;
   if(n_tot>1){
     tp=now();
-    const ProcessTensorElement &e_last=PTB.get(n_tot-1, ForwardPreload);
+    const ProcessTensorElement &e_last = stream ? cur : PTB.get(n_tot-1, ForwardPreload);
     double tail_bound=std::sqrt((double)NL)*tail_sum;
     for(size_t a=0; a<states.size(); a++){
       BalancedFactors::step_forward(states[a], e_last, contexts[a], n_tot-1);
@@ -374,6 +637,11 @@ std::vector<BalancedTruncationDiagnostics> BalancedSweep::sweep_forward(
     for(const BalancedCertificate &c : certs){ c.print_csv(ofs_cert); }
   }
   if(certificates)*certificates=certs;
+  if(stream && n_tot>0){
+    tp=now();
+    out->push_back(cur);
+    tm.apply+=seconds_since(tp);
+  }
 
   tm.total=seconds_since(time1);
   if(timings)*timings=tm;

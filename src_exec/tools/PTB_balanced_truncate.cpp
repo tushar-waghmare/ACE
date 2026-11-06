@@ -3,6 +3,7 @@
 #include "BalancedSweep.hpp"
 #include "DummyException.hpp"
 #include "Timings.hpp"
+#include "BuildInfo.hpp"
 #include <fstream>
 
 /*
@@ -33,8 +34,20 @@
     balanced_certificate CSV file with the global error certificate (final time,
                          relative to read_PT) per context set: set,n_contexts,
                          certificate,rms_error,max_identity_residual,tail_bound
+    balanced_future_cache <file>  cache of the operational future factors (training
+                         contexts, readout stride) of read_PT: loaded if it exists and
+                         matches, otherwise computed and written; independent of
+                         maxk, threshold and eta (one cache per training set)
+    balanced_hs_cache <file>      cache of the HS future factors of read_PT (eta>0);
+                         independent of contexts, maxk and eta
+    balanced_cache_only  true: only compute/write the caches above (no write_PT,
+                         no truncation parameters needed)
+    stream               true: read read_PT once and write the truncated elements to
+                         write_PT as the sweep proceeds, instead of truncating a full
+                         copy of read_PT in place (same result, no full-size copy on disk)
     buffer_blocksize     block size of the output PT (default: single file)
     verbosity            0, 1 (default), 2 (one line per cut)
+    build_info           print the source commit of this build and exit
 */
 
 using namespace ACE;
@@ -47,10 +60,20 @@ int main(int args, char** argv){
  try{
   time_point t_start=now(), tp=now();
   Parameters param(args, argv, true);
+  if(param.get_as_bool("build_info", false)){
+    std::cout<<"build "<<build_commit()<<std::endl;
+    return 0;
+  }
 
   std::string read_PT = param.get_as_string_check("read_PT");
-  std::string write_PT = param.get_as_string_check("write_PT");
-  if(read_PT==write_PT){
+  bool cache_only=param.get_as_bool("balanced_cache_only", false);
+  bool stream=param.get_as_bool("stream", false);
+  std::string write_PT = cache_only ? param.get_as_string("write_PT", "") : param.get_as_string_check("write_PT");
+  if(cache_only && write_PT!=""){
+    std::cerr<<"'balanced_cache_only true' does not write a PT: remove 'write_PT'!"<<std::endl;
+    throw DummyException();
+  }
+  if(!cache_only && read_PT==write_PT){
     std::cerr<<"read_PT and write_PT must differ!"<<std::endl;
     throw DummyException();
   }
@@ -58,7 +81,7 @@ int main(int args, char** argv){
 
   BalancedSweepOptions opt(param);
   BalancedContexts contexts(param);
-  if(contexts.size()<1){
+  if(contexts.size()<1 && !(cache_only && opt.future_cache=="")){
     std::cerr<<"Please specify at least one 'add_balanced_context'!"<<std::endl;
     throw DummyException();
   }
@@ -73,15 +96,28 @@ int main(int args, char** argv){
       std::cerr<<"PTB.get_n_tot()="<<PTB_in.get_n_tot()<<"<1!"<<std::endl;
       throw DummyException();
     }
+    if(opt.verbosity>0){ std::cout<<"PTB_balanced_truncate build "<<build_commit()<<std::endl; }
 
-    ProcessTensorBuffer PTB;
-    PTB.set_new_file(write_PT, buffer_blocksize);
-    PTB.copy_content(PTB_in);
-    t_read=seconds_since(tp);
+    if(cache_only){
+      t_read=seconds_since(tp);
+      BalancedSweep::sweep_forward(PTB_in, contexts, opt, &tm);
+      tp=now();
+    }else if(stream){
+      ProcessTensorBuffer PTB;
+      PTB.set_new_file(write_PT, buffer_blocksize);
+      t_read=seconds_since(tp);
+      BalancedSweep::sweep_forward(PTB_in, contexts, opt, &tm, nullptr, &PTB);
+      tp=now();
+    }else{
+      ProcessTensorBuffer PTB;
+      PTB.set_new_file(write_PT, buffer_blocksize);
+      PTB.copy_content(PTB_in);
+      t_read=seconds_since(tp);
 
-    PTB.sweep_forward_balanced(contexts, opt, &tm);
-    tp=now();
-  } //PTB is written when it goes out of scope
+      PTB.sweep_forward_balanced(contexts, opt, &tm);
+      tp=now();
+    } //PTB is written when it goes out of scope
+  }
   t_write=seconds_since(tp);
   double t_total=seconds_since(t_start);
 

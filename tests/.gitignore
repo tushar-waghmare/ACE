@@ -6,3 +6,4 @@ data/*.csv
 data/fs_*.param
 data/fs_*.log
 data/mj_*
+data/*.cache*

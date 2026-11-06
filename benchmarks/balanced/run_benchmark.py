@@ -27,6 +27,19 @@ max/median ||X||*||Y|| and the sum of local operational errors; certificate_trai
 row only): global ensemble certificate of the sweep, an upper bound on that row's rms_final (equal weights,
 final time, relative to the input PT; free since pasts and futures use the same training list;
 balanced_<maxk>_<eta>_cert.csv).
+
+Large PTs (all optional; results are identical, see tests/test_balanced_stream_cache.cpp):
+  --batched     simulations with tools/PTB_simulate_contexts: one pass over the PT per --jobs chunk of
+                contexts instead of one bin/ACE run (one full read of the PT) per context;
+  --stream      PTB_balanced_truncate -stream true: no full working copy of the input PT on disk;
+  --cache_dir   maxk/eta-independent quantities of the input PT, computed once and reused: operational
+                future factors per training set, HS future factors, log ||T||_HS, maxdim of the input;
+  --stage       split a run into prep (contexts, reference, caches), svd (SVD arm) and balanced
+                (balanced arm); svd/balanced write results_svd.csv / results_balanced.csv
+                (hpc/merge_results.py merges them); 'all' (default) = everything, results.csv.
+timings.csv (outdir): wall-clock seconds per phase (reference, truncation, simulations, HS distance, ...);
+balanced_<maxk>_<eta>_timing.csv: phases inside PTB_balanced_truncate.
+Before running, the build of the tools is checked against the checkout (--allow_stale_build to skip).
 """
 import argparse
 import csv
@@ -38,6 +51,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -130,6 +144,22 @@ def simulate(ctx, pt, outfile, reuse=False):
         run([ACE, ctx, '-add_PT', pt, '-outfile', tmp, '-set_precision', '14'])
         if reuse:
             os.replace(tmp, outfile)
+    return read_outfile(outfile)
+
+
+def simulate_batch(ctxs, pt, outfiles):
+    """all contexts in one pass over the PT (PTB_simulate_contexts; output files identical to bin/ACE);
+    written atomically"""
+    cmd = [os.path.join(TOOLS, 'PTB_simulate_contexts'), '-read_PT', pt, '-set_precision', '14']
+    tmps = [f'{o}.tmp{os.getpid()}' for o in outfiles]
+    for c, t in zip(ctxs, tmps):
+        cmd += ['-add_context', c, t]
+    run(cmd)
+    for t, o in zip(tmps, outfiles):
+        os.replace(t, o)
+
+
+def read_outfile(outfile):
     t, obs, tr, pop = [], [], [], []
     with open(outfile) as f:
         for line in f:
@@ -166,9 +196,12 @@ def maxdim_of(pt):
     return -1
 
 
-def hs_rel(pt_in, pt):
-    """||T_in - T||_HS / ||T_in||_HS (dictionary multiplicities)"""
-    _, out = run([os.path.join(TOOLS, 'PTB_HS_distance'), '-read_PT', pt_in, '-compare_PT', pt])
+def hs_rel(pt_in, pt, log_norm_in=None):
+    """||T_in - T||_HS / ||T_in||_HS (dictionary multiplicities); log_norm_in: cached log ||T_in||_HS"""
+    cmd = [os.path.join(TOOLS, 'PTB_HS_distance'), '-read_PT', pt_in, '-compare_PT', pt]
+    if log_norm_in is not None:
+        cmd += ['-log_norm_A', log_norm_in]
+    _, out = run(cmd)
     return float(next(l.split()[1] for l in out.splitlines() if l.startswith('relative')))
 
 
@@ -213,6 +246,131 @@ def training_certificate(certfile):
     return None
 
 
+class PhaseTimer:
+    """wall-clock time per phase, appended to a CSV (phase,method,maxk,eta,seconds,finished)"""
+
+    def __init__(self, path):
+        self.path = path
+        self.lock = threading.Lock()
+
+    def __call__(self, phase, method='', maxk='', eta=''):
+        timer = self
+
+        class _T:
+            def __enter__(self):
+                self.t0 = time.time()
+
+            def __exit__(self, *exc):
+                if exc[0] is None:
+                    timer.add(phase, method, maxk, eta, time.time() - self.t0)
+        return _T()
+
+    def add(self, phase, method, maxk, eta, seconds):
+        with self.lock:
+            self._add(phase, method, maxk, eta, seconds)
+
+    def _add(self, phase, method, maxk, eta, seconds):
+        new = not os.path.exists(self.path)
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, 'a') as f:
+            if new:
+                f.write('phase,method,maxk,eta,seconds,finished\n')
+            f.write(f"{phase},{method},{maxk},{'' if eta is None else eta},{seconds:.3f},"
+                    f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+
+class Cache:
+    """maxk/eta-independent quantities of one input PT (one directory per input PT), computed once under
+    a file lock and reused: log ||T||_HS (PTB_HS_distance -norm_only), maxdim, operational future factors
+    per training set and HS future factors (PTB_balanced_truncate -balanced_cache_only). The binary caches
+    verify PT and contexts themselves; the text caches record the PT header path and size/mtime of its files."""
+
+    def __init__(self, d, pt):
+        self.dir = os.path.abspath(d)
+        self.pt = pt
+        self.hs_file = os.path.join(self.dir, 'hs_future.cache')
+        os.makedirs(self.dir, exist_ok=True)
+
+    def _pt_id(self):
+        d, name = os.path.split(self.pt)
+        files = [self.pt] + sorted(os.path.join(d, f) for f in os.listdir(d or '.')
+                                   if f.startswith(name + '_') and f[len(name) + 1:].isdigit())
+        st = [os.stat(f) for f in files]
+        return f'{self.pt} files={len(files)} bytes={sum(x.st_size for x in st)} mtime={max(x.st_mtime for x in st):.0f}'
+
+    def _text(self, name, compute):
+        path = os.path.join(self.dir, name)
+        with open(path + '.lock', 'w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            ident = self._pt_id()
+            if os.path.exists(path):
+                with open(path) as f:
+                    lines = f.read().splitlines()
+                if len(lines) == 2 and lines[0] == ident:
+                    return lines[1]
+                print(f'cache {path} is for another PT ({lines[0] if lines else "empty"}): recomputing', flush=True)
+            value = compute()
+            with open(path + '.tmp', 'w') as f:
+                f.write(f'{ident}\n{value}\n')
+            os.replace(path + '.tmp', path)
+            return value
+
+    def log_norm(self):
+        def compute():
+            _, out = run([os.path.join(TOOLS, 'PTB_HS_distance'), '-read_PT', self.pt, '-norm_only', 'true'])
+            return next(l.split()[1] for l in out.splitlines() if l.startswith('log_norm_A'))
+        if not hasattr(self, '_log_norm'):
+            self._log_norm = self._text('log_norm.txt', compute)
+        return self._log_norm
+
+    def maxdim(self):
+        return int(self._text('maxdim.txt', lambda: str(maxdim_of(self.pt))))
+
+    def balanced_cache(self, args, path):
+        """PTB_balanced_truncate -balanced_cache_only (the tool reuses a matching cache file)"""
+        with open(path + '.lock', 'w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            run([os.path.join(TOOLS, 'PTB_balanced_truncate'), '-read_PT', self.pt, '-balanced_cache_only', 'true',
+                 '-verbosity', '1'] + args)
+
+
+def check_build(allow_stale):
+    """The tools must be built from the checked-out sources: their build stamp (git describe at build time)
+    must contain the last commit that changed C++ sources or the Makefile. Old builds have no stamp."""
+    def git(*args):
+        p = subprocess.run(['git', '-C', ROOT] + list(args), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        return p.returncode, p.stdout.strip()
+    rc, head = git('rev-parse', '--short', 'HEAD')
+    _, last_cpp = git('log', '-1', '--format=%h', '--', 'src', 'include', 'src_exec', 'Makefile')
+    stamps = {}
+    for tool in ('PTB_balanced_truncate', 'PTB_simulate_contexts', 'PTB_HS_distance'):
+        path = os.path.join(TOOLS, tool)
+        p = subprocess.run([path, '-build_info', 'true'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) \
+            if os.path.exists(path) else None
+        line = p.stdout.strip().splitlines()[0] if p and p.returncode == 0 and p.stdout.strip() else ''
+        stamps[tool] = line.split()[1] if line.startswith('build ') else 'unstamped'
+    lib = os.path.join(ROOT, 'lib', 'libACE.so')
+    lib_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(lib))) if os.path.exists(lib) else 'missing'
+    print(f"build check: checkout {head if rc == 0 else '?'}, last C++ change {last_cpp or '?'}, libACE.so {lib_time}, "
+          + ', '.join(f'{k} {v}' for k, v in stamps.items()), flush=True)
+    problems = []
+    for tool, st in stamps.items():
+        if st == 'unstamped':
+            problems.append(f'{tool} has no build stamp (built before the stamp was introduced, or missing)')
+        elif st.endswith('-dirty'):
+            print(f'WARNING: {tool} was built from a modified working tree ({st})', flush=True)
+        if st not in ('unstamped', 'unknown') and rc == 0 and last_cpp:
+            commit = st[:-len('-dirty')] if st.endswith('-dirty') else st
+            commit = commit.rsplit('-g', 1)[-1]  # 'tag-N-gHASH' or 'HASH'
+            if git('merge-base', '--is-ancestor', last_cpp, commit)[0] != 0:
+                problems.append(f'{tool} was built from {st}, before the last C++ change {last_cpp}')
+    if problems:
+        msg = 'stale build: ' + '; '.join(problems) + ' -> rebuild (hpc/build_archer2.sh or make) or pass --allow_stale_build'
+        if not allow_stale:
+            raise SystemExit('ERROR: ' + msg)
+        print('WARNING: ' + msg, flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--pt', required=True, help='input PT (reference)')
@@ -255,6 +413,19 @@ def main():
     ap.add_argument('--reference_only', action='store_true', help='only run the reference simulations')
     ap.add_argument('--svd_dir', default=None,
                     help='SVD-truncated PTs shared between seeds (svd_<maxk>.pt, kept; reused when done)')
+    ap.add_argument('--batched', action='store_true',
+                    help='simulate with PTB_simulate_contexts: one pass over the PT per chunk of contexts (--jobs chunks)')
+    ap.add_argument('--stream', action='store_true',
+                    help='PTB_balanced_truncate -stream true (no full working copy of the input PT)')
+    ap.add_argument('--cache_dir', default=None,
+                    help='cache of maxk/eta-independent quantities of the input PT (one directory per input PT)')
+    ap.add_argument('--stage', default='all', choices=['all', 'prep', 'svd', 'balanced'],
+                    help="prep: contexts, reference and caches; svd / balanced: one arm "
+                         "(results_svd.csv / results_balanced.csv); all: everything (results.csv)")
+    ap.add_argument('--eta_jobs', type=int, default=1,
+                    help='balanced truncations (etas) run in parallel; each needs the memory of one PTB_balanced_truncate')
+    ap.add_argument('--allow_stale_build', action='store_true',
+                    help='only warn if the tools were not built from the checked-out sources')
     a = ap.parse_args()
     if not 0 <= a.pulsed_train <= min(len(PULSED_TRAIN_GRID), a.n_train):
         ap.error(f'--pulsed_train must be in [0, {min(len(PULSED_TRAIN_GRID), a.n_train)}]')
@@ -263,19 +434,24 @@ def main():
     a.label = a.family + (f'+p{a.pulsed_train}' if a.pulsed_train else '') + ('+grid' if a.ood_grid else '')
 
     out_root = os.path.abspath(a.outdir)
+    if not a.contexts_only:
+        check_build(a.allow_stale_build)
     seeds = a.seeds if a.seeds else [a.seed]
     rows = []
     for seed in seeds:
         out = out_root if len(seeds) == 1 else os.path.join(out_root, f'seed_{seed}')
         rows += run_seed(a, seed, out)
-    if a.contexts_only or a.reference_only:
+    if a.contexts_only or a.reference_only or a.stage == 'prep':
         return
     os.makedirs(out_root, exist_ok=True)
-    with open(os.path.join(out_root, 'results.csv'), 'w', newline='') as f:
+    name = 'results.csv' if a.stage == 'all' else f'results_{a.stage}.csv'
+    tmp = os.path.join(out_root, f'.{name}.{os.getpid()}')
+    with open(tmp, 'w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)
-    print(f"wrote {os.path.join(out_root, 'results.csv')}")
+    os.replace(tmp, os.path.join(out_root, name))
+    print(f"wrote {os.path.join(out_root, name)}")
 
 
 def run_seed(a, seed, out):
@@ -317,26 +493,58 @@ def run_seed(a, seed, out):
     if a.contexts_only:
         return []
     allctx = names['train'] + names['test'] + names['ood']
+    timer = PhaseTimer(os.path.join(out, 'timings.csv'))
+    cache = Cache(a.cache_dir, pt_in) if a.cache_dir else None
 
     def evaluate(pt, tag, outdir=None, reuse=False):
         outdir = outdir or os.path.join(out, 'runs')
         os.makedirs(outdir, exist_ok=True)
         outs = {c: os.path.join(outdir, f'{tag}_{os.path.basename(c)}.out') for c in allctx}
+        if a.batched:
+            todo = [c for c in allctx if not (reuse and os.path.exists(outs[c]))]
+            chunks = [todo[i::max(1, a.jobs)] for i in range(max(1, a.jobs))]
+            chunks = [ch for ch in chunks if ch]
+            with ThreadPoolExecutor(max_workers=max(1, len(chunks))) as ex:
+                for f in [ex.submit(simulate_batch, ch, pt, [outs[c] for c in ch]) for ch in chunks]:
+                    f.result()
+            return {c: read_outfile(outs[c]) for c in allctx}
         with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
             futures = {c: ex.submit(simulate, c, pt, outs[c], reuse) for c in allctx}
             return {c: futures[c].result() for c in allctx}
 
-    print(f"seed {seed}: reference {pt_in} (maxdim {maxdim_of(pt_in)})", flush=True)
-    reference = evaluate(pt_in, 'ref', a.ref_dir and os.path.abspath(a.ref_dir), reuse=a.ref_dir is not None)
+    with timer('maxdim_input'):
+        md_in = cache.maxdim() if cache else maxdim_of(pt_in)
+    print(f"seed {seed}: reference {pt_in} (maxdim {md_in})", flush=True)
+    with timer('reference'):
+        reference = evaluate(pt_in, 'ref', a.ref_dir and os.path.abspath(a.ref_dir), reuse=a.ref_dir is not None)
     if a.reference_only:
+        return []
+
+    future_cache = os.path.join(cache.dir, f'future_seed{seed}_stride{a.readout_stride}.cache') if cache else None
+    if a.stage == 'prep':
+        if cache:  # three independent passes over the PT, run concurrently
+            def timed(phase, fn, *args):
+                with timer(phase):
+                    fn(*args)
+            jobs = [('cache_log_norm', cache.log_norm),
+                    ('cache_future', cache.balanced_cache,
+                     ['-balanced_future_cache', future_cache, '-balanced_readout_stride', str(a.readout_stride)]
+                     + [x for c in names['train'] for x in ('-add_balanced_context', c)], future_cache),
+                    ('cache_hs', cache.balanced_cache, ['-balanced_hs_cache', cache.hs_file], cache.hs_file)]
+            with ThreadPoolExecutor(max_workers=3) as ex:
+                for f in [ex.submit(timed, *j) for j in jobs]:
+                    f.result()
         return []
 
     rows = []
 
-    def record(method, maxk, eta, pt, runtime, stats=(None, None, None), certificate=None):
-        res = evaluate(pt, os.path.basename(pt))
-        md = maxdim_of(pt)
-        hs = hs_rel(pt_in, pt)
+    def record(method, maxk, eta, pt, runtime, stats=(None, None, None), certificate=None, rows=rows):
+        with timer('simulate', method, maxk, eta):
+            res = evaluate(pt, os.path.basename(pt))
+        with timer('maxdim', method, maxk, eta):
+            md = maxdim_of(pt)
+        with timer('hs_distance', method, maxk, eta):
+            hs = hs_rel(pt_in, pt, cache.log_norm() if cache else None)
         for split in ('train', 'test', 'ood'):
             rf, rt, te_, dr = errors(res, reference, names[split])
             rows.append(dict(family=a.label, seed=seed, readout_stride=a.readout_stride, rhat=a.rhat,
@@ -351,44 +559,68 @@ def run_seed(a, seed, out):
                   f"rms_final={rf:.3e} rms_trace={rt:.3e} trace_err={te_:.1e} drift={dr:.1e} maxdim={md}", flush=True)
 
     for maxk in a.maxk:
-        # the SVD arm does not depend on the contexts: with --svd_dir it is computed once and shared
-        svd_pt = os.path.join(os.path.abspath(a.svd_dir) if a.svd_dir else out, f'svd_{maxk}.pt')
-        done = svd_pt + '.done'
-        if a.svd_dir:  # serializes seeds running at the same time; released if the process dies
-            os.makedirs(os.path.dirname(svd_pt), exist_ok=True)
-            lock = open(svd_pt + '.lock', 'w')
-            fcntl.flock(lock, fcntl.LOCK_EX)
-        if a.svd_dir and os.path.exists(done):
-            with open(done) as f:
-                t_svd = float(f.read())
-        else:
-            os.makedirs(os.path.dirname(svd_pt), exist_ok=True)
-            copy_pt(pt_in, svd_pt)
-            t_bw, _ = run([os.path.join(TOOLS, 'PTB_sweep_backward'), '-read_PT', svd_pt, '-threshold', '0', '-verbosity', '0'])
-            t_fw, _ = run([os.path.join(TOOLS, 'PTB_sweep_forward'), '-read_PT', svd_pt, '-threshold', '0',
-                           '-compress_maxk', str(maxk), '-verbosity', '0'])
-            t_svd = t_bw + t_fw
+        if a.stage in ('all', 'svd'):
+            # the SVD arm does not depend on the contexts: with --svd_dir it is computed once and shared
+            svd_pt = os.path.join(os.path.abspath(a.svd_dir) if a.svd_dir else out, f'svd_{maxk}.pt')
+            done = svd_pt + '.done'
+            if a.svd_dir:  # serializes seeds running at the same time; released if the process dies
+                os.makedirs(os.path.dirname(svd_pt), exist_ok=True)
+                lock = open(svd_pt + '.lock', 'w')
+                fcntl.flock(lock, fcntl.LOCK_EX)
+            if a.svd_dir and os.path.exists(done):
+                with open(done) as f:
+                    t_svd = float(f.read())
+            else:
+                with timer('svd_truncate', 'svd', maxk):
+                    os.makedirs(os.path.dirname(svd_pt), exist_ok=True)
+                    copy_pt(pt_in, svd_pt)
+                    t_bw, _ = run([os.path.join(TOOLS, 'PTB_sweep_backward'), '-read_PT', svd_pt, '-threshold', '0', '-verbosity', '0'])
+                    t_fw, _ = run([os.path.join(TOOLS, 'PTB_sweep_forward'), '-read_PT', svd_pt, '-threshold', '0',
+                                   '-compress_maxk', str(maxk), '-verbosity', '0'])
+                    t_svd = t_bw + t_fw
+                if a.svd_dir:
+                    with open(done, 'w') as f:
+                        f.write(f'{t_svd}\n')
             if a.svd_dir:
-                with open(done, 'w') as f:
-                    f.write(f'{t_svd}\n')
-        if a.svd_dir:
-            lock.close()
-        record('svd', maxk, None, svd_pt, t_svd)
+                lock.close()
+            record('svd', maxk, None, svd_pt, t_svd)
 
-        for eta in a.eta:
-            bal_pt = os.path.join(out, f'balanced_{maxk}_{eta}.pt')
-            log = os.path.join(out, f'balanced_{maxk}_{eta}.csv')
-            cert = os.path.join(out, f'balanced_{maxk}_{eta}_cert.csv')
-            cmd = [os.path.join(TOOLS, 'PTB_balanced_truncate'), '-read_PT', pt_in, '-write_PT', bal_pt,
-                   '-balanced_maxk', str(maxk), '-balanced_eta', str(eta), '-balanced_rhat', a.rhat,
-                   '-balanced_readout_stride', str(a.readout_stride),
-                   '-balanced_log', log, '-balanced_certificate', cert, '-verbosity', '0']
-            if a.buffer_blocksize > 0:
-                cmd += ['-buffer_blocksize', str(a.buffer_blocksize)]
-            for c in names['train']:
-                cmd += ['-add_balanced_context', c]
-            t_b, _ = run(cmd)
-            record('balanced', maxk, eta, bal_pt, t_b, balanced_stats(log), training_certificate(cert))
+        if a.stage in ('all', 'balanced'):
+            def balanced_run(eta):
+                eta_rows = []
+                bal_pt = os.path.join(out, f'balanced_{maxk}_{eta}.pt')
+                log = os.path.join(out, f'balanced_{maxk}_{eta}.csv')
+                cert = os.path.join(out, f'balanced_{maxk}_{eta}_cert.csv')
+                cmd = [os.path.join(TOOLS, 'PTB_balanced_truncate'), '-read_PT', pt_in, '-write_PT', bal_pt,
+                       '-balanced_maxk', str(maxk), '-balanced_eta', str(eta), '-balanced_rhat', a.rhat,
+                       '-balanced_readout_stride', str(a.readout_stride),
+                       '-balanced_log', log, '-balanced_certificate', cert,
+                       '-balanced_timing', os.path.join(out, f'balanced_{maxk}_{eta}_timing.csv'), '-verbosity', '0']
+                if a.buffer_blocksize > 0:
+                    cmd += ['-buffer_blocksize', str(a.buffer_blocksize)]
+                if a.stream:
+                    cmd += ['-stream', 'true']
+                if cache:
+                    cmd += ['-balanced_future_cache', future_cache]
+                    if eta > 0:
+                        cmd += ['-balanced_hs_cache', cache.hs_file]
+                for c in names['train']:
+                    cmd += ['-add_balanced_context', c]
+                with timer('balanced_truncate', 'balanced', maxk, eta):
+                    t_b, _ = run(cmd)
+                record('balanced', maxk, eta, bal_pt, t_b, balanced_stats(log), training_certificate(cert), eta_rows)
+                return eta_rows
+            # missing caches are computed once here (locked), not by every parallel eta
+            if cache and not os.path.exists(future_cache):
+                cache.balanced_cache(['-balanced_future_cache', future_cache, '-balanced_readout_stride',
+                                      str(a.readout_stride)] + [x for c in names['train'] for x in ('-add_balanced_context', c)],
+                                     future_cache)
+            if cache and any(e > 0 for e in a.eta) and not os.path.exists(cache.hs_file):
+                cache.balanced_cache(['-balanced_hs_cache', cache.hs_file], cache.hs_file)
+            # etas in parallel (--eta_jobs); rows in the order of --eta
+            with ThreadPoolExecutor(max_workers=max(1, min(a.eta_jobs, len(a.eta)))) as ex:
+                for f in [ex.submit(balanced_run, eta) for eta in a.eta]:
+                    rows += f.result()
         if not a.keep_pts:
             for f in os.listdir(out):
                 if is_pt_file(f) and f.startswith(('balanced_',) if a.svd_dir else ('svd_', 'balanced_')):

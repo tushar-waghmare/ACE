@@ -55,6 +55,10 @@ PYBINDINC = $(shell python3 -m pybind11 --includes)
 
 #$(info $(PYBINDSUF) $(PYBINDINC) )
 
+# source commit stamped into bin/ACE and the tools (include/BuildInfo.hpp)
+GIT_COMMIT := $(shell git describe --always --dirty 2>/dev/null || echo unknown)
+BUILD_STAMP = -DACE_BUILD_COMMIT='"$(GIT_COMMIT)"'
+
 all: code tools
 code: PCH $(EXECOBJS) 
 $(EXECOBJS): %: src_exec/%.cpp  lib/$(LIBNAME) 
@@ -84,7 +88,7 @@ TOOLS = integrate_outfile differentiate_outfile FT_outfile smoothen_outfile
 TOOLS += PTB_sweep_forward PTB_sweep_backward PTB_apply_system_propagator
 TOOLS += PTB_analyze PTB_join PTR_to_PTB PTB_strip_env_ops PTB_extend
 TOOLS += PTB_transfer_env_ops PTB_expand_in_place PTB_coarse_grain 
-TOOLS += PTB_outer_contract PTB_balanced_truncate PTB_HS_distance
+TOOLS += PTB_outer_contract PTB_balanced_truncate PTB_HS_distance PTB_simulate_contexts
 TOOLS += PTR_sweep_backward PTR_analyze
 TOOLS += PME_renorm BCF_from_J
 TOOLS += readexpression print_densmat timedep_eigenstates
@@ -104,7 +108,7 @@ EXPERIMENTAL += test_QUAPI_vs_PT test_RandomizedCompression
 
 tools: $(TOOLS)
 $(TOOLS): %: src_exec/tools/%.cpp lib/$(LIBNAME)
-	$(CXX) -o tools/$@ $< $(OPTSLINK) -Llib -lACE -Wl,-rpath,$(LIBSTRING)
+	$(CXX) -o tools/$@ $< $(BUILD_STAMP) $(OPTSLINK) -Llib -lACE -Wl,-rpath,$(LIBSTRING)
 
 experimental: $(EXPERIMENTAL)
 $(EXPERIMENTAL): %: src_exec/experimental/%.cpp lib/$(LIBNAME)
@@ -116,7 +120,7 @@ TESTBIN = $(patsubst tests/%.cpp, tests/bin/%, $(TESTSRC))
 
 TESTPT = tests/data/small.pt tests/data/exact.pt
 
-tests: $(TESTBIN) $(TESTPT) PTB_balanced_truncate
+tests: $(TESTBIN) $(TESTPT) PTB_balanced_truncate PTB_simulate_contexts PTB_HS_distance
 	@failed=0; for t in $(TESTBIN); do echo "=== $$t"; ./$$t || failed=1; done; \
 	if [ $$failed -ne 0 ]; then echo "SOME TESTS FAILED"; exit 1; else echo "ALL TESTS PASSED"; fi
 
