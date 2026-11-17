@@ -415,3 +415,24 @@ dimension on held-out pulses; no change to outputs of existing examples with def
   balanced arm (one array task per (seed, maxk), skip if done). Validation before use: seed 1 maxk 4
   through the new path must reproduce the earlier results.csv (`joined_grid_validate.slurm`).
 
+### Results (2026-11-17): joined cavity x bench30 benchmark
+
+- Grid 15870779-81 (ARCHER2, checkout 6967ba3): prep and SVD arm complete; balanced tasks 2-7 failed
+  because the concurrent SVD stage's end-of-maxk cleanup deleted `balanced_*.pt` in the shared outdir
+  (fixed in 8ed9f8f: each stage removes only its own PTs; completed tasks unaffected, since a missing
+  block file aborts the tool). Tasks 2-7 rerun. `results/joined_cavity_mixed/results.csv`,
+  `plot_joined_cavity.py` -> `plots/joined_cavity/`.
+- Ratio SVD / balanced(eta=0.3) of final-readout RMS, geometric mean over 3 seeds, m = 4, 6, 8, 12, 16, 24:
+  train 0.93 3.40 0.96 1.67 2.22 10.3; test 0.97 2.47 1.02 1.22 1.07 4.26;
+  OOD 1.05 1.76 0.72 0.82 0.58 1.17. Gains are modest (bench30: 15-10000x in distribution), and SVD is
+  better OOD at m = 8-16 (8 of 9 seed pairs). eta = 0 is best in distribution
+  (up to 5.4x at m = 24) but has ||X|| ||Y|| up to 2.4e7 and HS error ~10x SVD. The SVD arm's training and
+  test errors rise from m = 16 to m = 24 in all seeds (not investigated); the m = 24 ratios depend on it.
+- Certificate holds in all 90 training rows (certificate / RMS 1.6-5.4).
+- Trace: balanced max|tr rho - 1| = 3-5e-4 for all m and eta; SVD 2e-2 (m <= 8) to 2e-3 (m = 24).
+  The balanced floor is most likely the input PT's own trace error: on the joined halves the
+  untruncated reference has 4.65e-4 and balanced runs 3.7-4.7e-4 (`trace_floor.py`); the same check on the
+  cavity reference outputs is to be run on ARCHER2.
+- Interpretation (not tested): 16 training contexts cover the D = 1620 joined PT (cavity bath) poorly,
+  consistent with the coverage study and the earlier joined-PT note; more/diverse training contexts are
+  the next lever.
