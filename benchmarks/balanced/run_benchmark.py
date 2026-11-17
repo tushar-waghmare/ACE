@@ -622,8 +622,13 @@ def run_seed(a, seed, out):
                 for f in [ex.submit(balanced_run, eta) for eta in a.eta]:
                     rows += f.result()
         if not a.keep_pts:
+            # remove only the PTs this stage wrote: with --stage svd and --stage balanced running at the
+            # same time in the same outdir (grid), the SVD stage must not touch the balanced PTs
+            # (grid 15870781: an SVD task deleted a balanced block file in use -> 6 failed tasks)
+            own = (() if a.svd_dir or a.stage not in ('all', 'svd') else ('svd_',)) + \
+                  (('balanced_',) if a.stage in ('all', 'balanced') else ())
             for f in os.listdir(out):
-                if is_pt_file(f) and f.startswith(('balanced_',) if a.svd_dir else ('svd_', 'balanced_')):
+                if own and is_pt_file(f) and f.startswith(own):
                     os.remove(os.path.join(out, f))
     return rows
 
