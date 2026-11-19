@@ -254,15 +254,17 @@ static void T4_spectra(){
   double dop=0., dfl=0.;
   for(int n=0; n<n_tot; n++){
     for(int i=0; i<std::min(s1[n].size(), s2[n].size()); i++){
-      if(s1[n](i)<1e-8*s1[n](0))break;
+      //values that enter ranks at eps >= 1e-3 (as the flat-vs-SVD check above); smaller values carry
+      //roundoff ~ 1e-16 (s_1/s_i) cond(G), platform dependent (1.6e-8 at 1e-8 s_1 on Cirrus without MKL)
+      if(s1[n](i)<1e-4*s1[n](0))break;
       dop=std::max(dop, std::abs(s1[n](i)-s2[n](i))/s1[n](i));
     }
     for(int i=0; i<std::min(f1[n].size(), f2[n].size()); i++){
-      if(f1[n](i)<1e-8*f1[n](0))break;
+      if(f1[n](i)<1e-4*f1[n](0))break;
       dfl=std::max(dfl, std::abs(f1[n](i)/f1[n](0)-f2[n](i)/f2[n](0))/(f1[n](i)/f1[n](0)));
     }
   }
-  check(dop<1e-8 && dfl<1e-8, "T4 spectra invariant under a random bond gauge (operational "+sci(dop)+", flat "+sci(dfl)+")");
+  check(dop<1e-8 && dfl<1e-8, "T4 spectra invariant under a random bond gauge, s_i >= 1e-4 s_1 (operational "+sci(dop)+", flat "+sci(dfl)+")");
 }
 
 //------------------------------------------------------------------------- T5

@@ -51,3 +51,8 @@ Recorded before the grid is run. Each entry: date, what, why.
   partial for oob2 (in studyA/results). Observation, not a change: outcomes are not O(1) as the
   Stage 0 proxy assumes; without pulses Gamma(20 ps) ~ 3.9 at alpha = 0.05, and RMS(y) ~ 0.015-0.022
   on the held-out sets, so the A3 threshold eps * RMS(y) is ~5e-5.
+- 2026-11-19, T4 gauge-invariance check: per-value comparison restricted to s_i >= 1e-4 s_1 (as the
+  flat-vs-SVD check). Down to 1e-8 s_1 it measured roundoff (7e-9 on the Mac, 1.6e-8 on Cirrus without
+  MKL, failing the 1e-8 tolerance there); in the rank-relevant range the deviation is 5e-12.
+- 2026-11-19, HPC: ARCHER2 closed (20 Nov); runs move to Cirrus (studyA/hpc/*cirrus*), built without
+  MKL (MKL 2025 headers do not compile with Eigen 3.4 + g++ 14). Smoke test 0.516043 on Cirrus.
