@@ -14,7 +14,7 @@
 #SBATCH --output=ACE-studyA-build-%j.out
 #SBATCH --error=ACE-studyA-build-%j.err
 set -euo pipefail
-source "${STUDYA_HOME:-/work/e89/e89/tusharwaghmare/software/ACE-studyA}/studyA/hpc/cirrus_env.sh"
+source "${STUDYA_HOME:-${STUDYA_BASE:-/epccfs/e89/e89/$USER}/software/ACE-studyA}/studyA/hpc/cirrus_env.sh"
 [[ -n "${EIGEN_HOME:-}" && -f "$EIGEN_HOME/Eigen/Eigen" ]] || { echo "ERROR: Eigen headers not found; set EIGEN_HOME" >&2; exit 1; }
 cd "$STUDYA_HOME"
 echo "commit $(git rev-parse --short HEAD), $(date)"

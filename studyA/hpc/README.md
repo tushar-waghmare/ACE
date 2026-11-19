@@ -35,17 +35,21 @@ Local reference timings (Mac, 1 core): +2 peaks alpha 0.05: 53 s (1e-6), 500 s (
 AMD EPYC 9745 (2 x 128 cores per node), HPE Cray PE 25.03; account `e89-man-m`;
 QOS `standard` (48 h), `long` (4 days, <= 16 nodes). Environment: `cirrus_env.sh`
 (PrgEnv-gnu, gcc-native/14.2, eigen/3.4.0, intel-mkl/2025.0).
+File systems: project space is `/epccfs/e89/<group>/` (NFS); `/work` is Lustre for shared software only.
+All scripts derive their paths from `STUDYA_BASE` (default `/epccfs/e89/e89/$USER`):
+clone `$STUDYA_BASE/software/ACE-studyA`, PT outputs `$STUDYA_BASE/studyA/pts`.
 
-    export STUDYA_HOME=/work/e89/e89/tusharwaghmare/software/ACE-studyA
+    export STUDYA_BASE=/epccfs/e89/e89/$USER          # adjust if your directory is elsewhere
+    export STUDYA_HOME=$STUDYA_BASE/software/ACE-studyA
     git clone -b studyA https://github.com/tushar-waghmare/ACE.git $STUDYA_HOME   # login node
-    sbatch $STUDYA_HOME/studyA/hpc/build_cirrus.slurm                             # compute node, < 2 h
-    # checks (login node or short job): tests and smoke test
+    sbatch --export=ALL $STUDYA_HOME/studyA/hpc/build_cirrus.slurm               # compute node, < 2 h
+    # checks: tests and smoke test
     source $STUDYA_HOME/studyA/hpc/cirrus_env.sh && cd $STUDYA_HOME && make tests EIGEN_HOME=$EIGEN_HOME MKLROOT=$MKLROOT
     cd benchmarks/balanced && ../../bin/ACE smoke_PT.param > /dev/null && tail -1 smoke_direct.out   # |1><1| = 0.516043
     # PT builds
-    mkdir -p /work/e89/e89/tusharwaghmare/studyA && cd /work/e89/e89/tusharwaghmare/studyA
-    sbatch --array=0-1 $STUDYA_HOME/studyA/hpc/studyA_pt_build_cirrus.slurm
-    sbatch --array=2-3 --qos=long --time=4-00:00:00 $STUDYA_HOME/studyA/hpc/studyA_pt_build_cirrus.slurm
+    mkdir -p $STUDYA_BASE/studyA && cd $STUDYA_BASE/studyA
+    sbatch --export=ALL --array=0-1 $STUDYA_HOME/studyA/hpc/studyA_pt_build_cirrus.slurm
+    sbatch --export=ALL --array=2-3 --qos=long --time=4-00:00:00 $STUDYA_HOME/studyA/hpc/studyA_pt_build_cirrus.slurm
 
 Before submitting groups 2-3, check the node memory (`sinfo -p standard,highmem -o "%P %c %m"`);
 if a standard node has less than ~500 GB, add `--partition=highmem` for them.

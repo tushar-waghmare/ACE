@@ -22,8 +22,8 @@
 #SBATCH --output=ACE-studyA-pt-%A_%a.out
 #SBATCH --error=ACE-studyA-pt-%A_%a.err
 set -euo pipefail
-source "${STUDYA_HOME:-/work/e89/e89/tusharwaghmare/software/ACE-studyA}/studyA/hpc/cirrus_env.sh"
-OUT="${STUDYA_OUT:-/work/e89/e89/tusharwaghmare/studyA/pts}"
+source "${STUDYA_HOME:-${STUDYA_BASE:-/epccfs/e89/e89/$USER}/software/ACE-studyA}/studyA/hpc/cirrus_env.sh"
+OUT="$STUDYA_OUT"
 mkdir -p "$OUT"
 cd "$OUT"
 GROUP="${SLURM_ARRAY_TASK_ID:?submit with --array=0-3}"
