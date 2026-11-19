@@ -5,7 +5,9 @@
 module load PrgEnv-gnu 2>/dev/null || true
 module load gcc-native/14.2
 module load eigen/3.4.0
-module load intel-mkl/2025.0
+# intel-mkl conflicts with cray-libsci (loaded by PrgEnv-gnu); MKL is optional (Eigen fallback)
+module unload cray-libsci 2>/dev/null || true
+module load intel-mkl/2025.0 2>/dev/null || echo "WARNING: intel-mkl not loaded; building without MKL" >&2
 module load cray-python 2>/dev/null || module load python/3.11.7
 
 export STUDYA_BASE="${STUDYA_BASE:-/epccfs/e89/e89/$USER}"
