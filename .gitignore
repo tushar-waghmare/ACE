@@ -8,3 +8,8 @@ examples/**/*.out
 examples/**/*.pt
 examples/**/*.pt_*
 .DS_Store
+# Study A: regenerable bath tables and PT files (studyA/baths.py, studyA/pts/*.param)
+studyA/baths/*.dat
+studyA/**/*.pt
+studyA/**/*.pt_*
+studyA/**/*.log

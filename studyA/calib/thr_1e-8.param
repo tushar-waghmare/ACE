@@ -1,0 +1,15 @@
+# T1 calibration: pure dephasing, no H_S, no pulses, initial |+>
+ta 0
+dt 0.1
+te 5
+t_mem 5
+threshold 1e-8
+use_Gaussian true
+set_precision 15
+Boson_SysOp {|1><1|_2}
+Boson_read_K_int ../baths/K_ohmic_a0.05_dt0.1_N200.dat
+Boson_temperature 7.638235945669951
+Boson_subtract_polaron_shift true
+initial {0.5*(|0><0|_2+|0><1|_2+|1><0|_2+|1><1|_2)}
+add_Output {|1><0|_2}
+outfile thr_1e-8.out

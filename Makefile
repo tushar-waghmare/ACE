@@ -90,6 +90,7 @@ TOOLS += PTB_analyze PTB_join PTR_to_PTB PTB_strip_env_ops PTB_extend
 TOOLS += PTB_transfer_env_ops PTB_expand_in_place PTB_coarse_grain 
 TOOLS += PTB_outer_contract PTB_balanced_truncate PTB_HS_distance PTB_simulate_contexts
 TOOLS += PTR_sweep_backward PTR_analyze
+TOOLS += PTB_memory_spectra PTB_family_truncate PTB_truncate_time
 TOOLS += PME_renorm BCF_from_J
 TOOLS += readexpression print_densmat timedep_eigenstates
 
@@ -118,7 +119,7 @@ $(EXPERIMENTAL): %: src_exec/experimental/%.cpp lib/$(LIBNAME)
 TESTSRC = $(wildcard tests/*.cpp)
 TESTBIN = $(patsubst tests/%.cpp, tests/bin/%, $(TESTSRC))
 
-TESTPT = tests/data/small.pt tests/data/exact.pt
+TESTPT = tests/data/small.pt tests/data/exact.pt tests/data/studyA_ff.pt
 
 tests: $(TESTBIN) $(TESTPT) PTB_balanced_truncate PTB_simulate_contexts PTB_HS_distance
 	@failed=0; for t in $(TESTBIN); do echo "=== $$t"; ./$$t || failed=1; done; \

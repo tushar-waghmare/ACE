@@ -1,0 +1,14 @@
+# Study A test PT (tests/test_studyA.cpp): Ohmic pure dephasing, alpha=0.05 (Stage 0 units),
+# exact K_n from studyA/export_test_data.py, 30 steps, essentially untruncated.
+ta 0
+dt 0.1
+te 3
+t_mem 3
+threshold 1e-12
+use_Gaussian true
+Boson_SysOp {|1><1|_2}
+Boson_read_K_int studyA/K_ff.dat
+Boson_temperature 7.638235945669951
+Boson_subtract_polaron_shift true
+write_PT studyA_ff.pt
+outfile /dev/null

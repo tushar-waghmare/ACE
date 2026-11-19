@@ -5,8 +5,9 @@ simulations with process-tensor MPOs (PT-MPOs). In this fork we add *operational
 truncation*: bond truncation that minimizes the error for a specified ensemble of system contexts,
 with the PT closure protected exactly.
 
-Current task and full plan: @docs/balanced_truncation_plan.md
+Balanced truncation plan (v1 and post-v1 done): @docs/balanced_truncation_plan.md
 Global error certificate (ported, see plan Section 7): @docs/certificate_port.md
+Study A (current task, branch `studyA`): @docs/studyA_spec.md
 
 ## Build and run
 
