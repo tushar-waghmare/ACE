@@ -5,9 +5,16 @@
 module load PrgEnv-gnu 2>/dev/null || true
 module load gcc-native/14.2
 module load eigen/3.4.0
-# intel-mkl conflicts with cray-libsci (loaded by PrgEnv-gnu); MKL is optional (Eigen fallback)
-module unload cray-libsci 2>/dev/null || true
-module load intel-mkl/2025.0 2>/dev/null || echo "WARNING: intel-mkl not loaded; building without MKL" >&2
+# MKL is off by default: intel-mkl/2025.0's mkl_direct_call.h does not compile with Eigen 3.4's MKL
+# bindings under g++ 14 (void* -> MKL_Complex16*, in MatrixXcd::exp -> ztrsm); job 703866.
+# Without MKL, Eigen's own SVD/QR are used (same results up to rounding, slower only for large SVDs).
+# Opt in with STUDYA_USE_MKL=1 (intel-mkl conflicts with cray-libsci, which is unloaded then).
+if [[ "${STUDYA_USE_MKL:-0}" == "1" ]]; then
+  module unload cray-libsci 2>/dev/null || true
+  module load intel-mkl/2025.0 2>/dev/null || echo "WARNING: intel-mkl not loaded; building without MKL" >&2
+else
+  unset MKLROOT
+fi
 module load cray-python 2>/dev/null || module load python/3.11.7
 
 export STUDYA_BASE="${STUDYA_BASE:-/epccfs/e89/e89/$USER}"
@@ -26,8 +33,8 @@ if [[ -z "${EIGEN_HOME:-}" ]]; then
     done
   done
 fi
-# MKL: the module should set MKLROOT; otherwise build without MKL (Eigen's own linear algebra)
-if [[ -z "${MKLROOT:-}" ]]; then
+# MKL (opt-in): the module should set MKLROOT
+if [[ "${STUDYA_USE_MKL:-0}" == "1" && -z "${MKLROOT:-}" ]]; then
   for d in "${MKL_ROOT:-}" "${MKL_HOME:-}"; do [[ -n "$d" && -d "$d/include" ]] && export MKLROOT="$d"; done
 fi
 echo "studyA env: $(command -v g++) ($(g++ -dumpfullversion 2>/dev/null)), EIGEN_HOME=${EIGEN_HOME:-<unset>}, MKLROOT=${MKLROOT:-<unset>}"

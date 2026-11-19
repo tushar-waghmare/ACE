@@ -34,7 +34,7 @@ Local reference timings (Mac, 1 core): +2 peaks alpha 0.05: 53 s (1e-6), 500 s (
 
 AMD EPYC 9745 (2 x 128 cores per node), HPE Cray PE 25.03; account `e89-man-m`;
 QOS `standard` (48 h), `long` (4 days, <= 16 nodes). Environment: `cirrus_env.sh`
-(PrgEnv-gnu, gcc-native/14.2, eigen/3.4.0, intel-mkl/2025.0).
+(PrgEnv-gnu, gcc-native/14.2, eigen/3.4.0; MKL off by default: intel-mkl/2025.0 headers do not compile with Eigen 3.4 + g++ 14, opt in with STUDYA_USE_MKL=1).
 File systems: project space is `/epccfs/e89/<group>/` (NFS); `/work` is Lustre for shared software only.
 All scripts derive their paths from `STUDYA_BASE` (default `/epccfs/e89/e89/$USER`):
 clone `$STUDYA_BASE/software/ACE-studyA`, PT outputs `$STUDYA_BASE/studyA/pts`.
