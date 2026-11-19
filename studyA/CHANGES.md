@@ -46,3 +46,8 @@ Recorded before the grid is run. Each entry: date, what, why.
   * flat (HS) spectra come from normalized recursions: their sum_s2 is relative only;
   * T4 compares flat and SVD Schmidt values for s_i >= 1e-4 s_1 (all values that enter ranks at
     eps >= 1e-3), max relative deviation 3.7e-12.
+- 2026-11-19, pilot stopped early on the user's request (moving to ARCHER2): spectra and ranks done for
+  ohmic (theta 1e-7, 1e-9) and oob2 (1e-6, 1e-7); closing the loop complete for ohmic (theta 1e-7) and
+  partial for oob2 (in studyA/results). Observation, not a change: outcomes are not O(1) as the
+  Stage 0 proxy assumes; without pulses Gamma(20 ps) ~ 3.9 at alpha = 0.05, and RMS(y) ~ 0.015-0.022
+  on the held-out sets, so the A3 threshold eps * RMS(y) is ~5e-5.

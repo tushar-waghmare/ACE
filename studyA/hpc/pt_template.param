@@ -1,0 +1,17 @@
+# Study A PT (docs/studyA_spec.md, studyA/CHANGES.md): pure dephasing, exact K_n,
+# divide-and-conquer construction for 256 steps (cut to 200 steps afterwards)
+ta 0
+dt 0.1
+te 25.6
+t_mem 25.6
+threshold @THETA@
+use_Gaussian_log true
+set_precision 15
+Boson_SysOp {|1><1|_2}
+Boson_read_K_int @KFILE@
+Boson_temperature 7.638235207254385
+Boson_subtract_polaron_shift true
+initial {0.5*(|0><0|_2+|0><1|_2+|1><0|_2+|1><1|_2)}
+add_Output {|1><0|_2}
+outfile @NAME@.out
+write_PT @NAME@.pt

@@ -1,0 +1,16 @@
+# Study A pilot PT: pure dephasing, alpha=0.05 (Stage 0 units), DnC construction, 256 steps
+ta 0
+dt 0.1
+te 25.6
+t_mem 25.6
+threshold 1e-9
+use_Gaussian_log true
+set_precision 15
+Boson_SysOp {|1><1|_2}
+Boson_read_K_int ../baths/K_ohmic_a0.05_dt0.1_N512.dat
+Boson_temperature 7.638235945669951
+Boson_subtract_polaron_shift true
+initial {0.5*(|0><0|_2+|0><1|_2+|1><0|_2+|1><1|_2)}
+add_Output {|1><0|_2}
+outfile dnc256_ohmic_1e-9.out
+write_PT dnc256_ohmic_1e-9.pt
