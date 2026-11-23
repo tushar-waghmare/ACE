@@ -56,3 +56,20 @@ Recorded before the grid is run. Each entry: date, what, why.
   MKL, failing the 1e-8 tolerance there); in the rank-relevant range the deviation is 5e-12.
 - 2026-11-19, HPC: ARCHER2 closed (20 Nov); runs move to Cirrus (studyA/hpc/*cirrus*), built without
   MKL (MKL 2025 headers do not compile with Eigen 3.4 + g++ 14). Smoke test 0.516043 on Cirrus.
+- 2026-11-23, theta (decided by the user before any grid spectra or ranks exist). Cirrus PT builds (job
+  703919; 48 h for theta 1e-6..1e-8, 4 days for 1e-9; every build runs on one core, since ACE has no
+  OpenMP and the Cirrus build no MKL) did not finish within the time limit for:
+  alpha 0.05: oob6 at 1e-7, oob4 and oob6 at 1e-8 and 1e-9;
+  alpha 0.2: oob4 and oob6 at 1e-6 and 1e-7, oob2/oob4/oob6 at 1e-8 and 1e-9.
+  The spec's "theta and theta/100" check (A4) is therefore not available for n = 4, 6. Changes:
+  * primary theta = 1e-6 (spectra, ranks, closing the loop); the pilot's closing-the-loop runs used 1e-7;
+  * A4 threshold convergence is judged between theta and theta/10 = 1e-7 for all baths ("ranks change by
+    <= 1"); theta/100 = 1e-8 and 1e-9 are reported in addition wherever the PT exists (not for n = 4, 6);
+  * oob6 at alpha 0.05, theta 1e-7 (needed for A4 at n = 6) and oob4/oob6 at alpha 0.2, theta 1e-6 (secondary
+    block) are rebuilt on the 4-day QOS; a build that does not finish there is reported as not feasible
+    (A4 at n = 6 then fails for lack of data; the secondary block is reported without n = 4, 6);
+  * the dt check of A4 and the Time/Step blocks are unaffected (not built yet).
+  The pilot spectra support the choice (oob2 flat chi_HS at eps = 3e-3: 6 at both 1e-6 and 1e-7), and the
+  spec notes that a too-loose theta biases chi_HS low, i.e. against Outcome A.
+- 2026-11-23, closing-the-loop runs on the grid are split per bond dimension (one PTB_family_truncate run per
+  (bath, family, maxk), files heldout_<bath>_a<alpha>_thr<theta>_<family>_m<maxk>.csv); numerics unchanged.

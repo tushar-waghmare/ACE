@@ -53,3 +53,20 @@ clone `$STUDYA_BASE/software/ACE-studyA`, PT outputs `$STUDYA_BASE/studyA/pts`.
 
 Before submitting groups 2-3, check the node memory (`sinfo -p standard,highmem -o "%P %c %m"`);
 if a standard node has less than ~500 GB, add `--partition=highmem` for them.
+
+### Stage 2 on Cirrus: rebuilds, spectra/ranks, closing the loop (2026-11-23; theta choice in CHANGES.md)
+
+New login shells do not set the variables: `export STUDYA_BASE=/epccfs/e89/e89/$USER STUDYA_HOME=$STUDYA_BASE/software/ACE-studyA`.
+Do not rebuild the clone while PT or grid jobs are running (they call its binaries); `git pull` is safe.
+
+    cd $STUDYA_HOME && git pull && cd $STUDYA_BASE/studyA
+    # builds killed at 48 h that the grid needs, on the 4-day QOS (one core each)
+    sbatch --export=ALL,STUDYA_ONLY="oob6:0.05:1e-7 oob4:0.2:1e-6 oob6:0.2:1e-6" \
+           --qos=long --time=4-00:00:00 $STUDYA_HOME/studyA/hpc/studyA_pt_build_cirrus.slurm
+    # spectra + ranks (array 0: alpha 0.05, 1: alpha 0.2), then closing the loop (alpha 0.05, theta 1e-6)
+    J=$(sbatch --parsable --export=ALL,STAGE=spectra --array=0-1 $STUDYA_HOME/studyA/hpc/studyA_grid_cirrus.slurm)
+    sbatch --export=ALL,STAGE=loop --dependency=afterok:${J}_0 $STUDYA_HOME/studyA/hpc/studyA_grid_cirrus.slurm
+
+Results in `$STUDYA_BASE/studyA/results`. Estimated runtimes (cost ~ D^3, pilot timings): alpha 0.05 spectra
+~2 h (largest D = 705), alpha 0.2 spectra up to ~1.5 days (inband0.8 at 1e-9, D = 1818), loop a few hours
+(oob6, D = 539). Rebuilt PTs are picked up by resubmitting the same stage (finished outputs are skipped).

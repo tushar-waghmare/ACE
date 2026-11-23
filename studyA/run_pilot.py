@@ -4,9 +4,11 @@ Study A pilot / grid driver (docs/studyA_spec.md, Sec. 3-5; deviations in studyA
   python studyA/run_pilot.py spectra  --baths ohmic oob2 --thetas 1e-7 1e-9 [--jobs 4]
   python studyA/run_pilot.py ranks    --baths ohmic oob2 --thetas 1e-7 1e-9
   python studyA/run_pilot.py loop     --baths ohmic oob2 --theta 1e-7 [--families ...] [--jobs 4]
+  [--alpha 0.05] [--available] [--split_maxk]   (grid runs on Cirrus: studyA/hpc/studyA_grid_cirrus.slurm)
 
-PT files: studyA/pts/<bath>_a0.05_N200_thr<theta>.pt, cut from dnc256_<bath>_<theta>.pt with
-tools/PTB_truncate_time (built by the matching dnc256_<bath>_<theta>.param in studyA/pts).
+PT files: $STUDYA_PTS (default studyA/pts)/<bath>_a<alpha>_N200_thr<theta>.pt. Locally they are cut from
+dnc256_<bath>_<theta>.pt with tools/PTB_truncate_time; in an HPC PT directory (one with builds.csv) only
+PTs with a .done marker are used. Results go to $STUDYA_RESULTS (default studyA/results).
 Outputs: studyA/results/spectra/<bath>_a0.05_N200_dt0.1_thr<theta>_<family>.csv (cut,i,sigma),
 studyA/results/ranks.csv, studyA/results/heldout.csv.
 """
@@ -23,8 +25,9 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 TOOLS = os.path.join(ROOT, 'tools')
-PTS = os.path.join(HERE, 'pts')
-RES = os.path.join(HERE, 'results')
+PTS = os.environ.get('STUDYA_PTS') or os.path.join(HERE, 'pts')
+RES = os.environ.get('STUDYA_RESULTS') or os.path.join(HERE, 'results')
+HPC_PTS = os.path.exists(os.path.join(PTS, 'builds.csv'))   # PT directory of the HPC build jobs
 SPEC = os.path.join(RES, 'spectra')
 sys.path.insert(0, os.path.join(ROOT, 'tools', 'studyA'))
 sys.path.insert(0, HERE)
@@ -62,8 +65,17 @@ def run(cmd, log):
     return time.time() - t0
 
 
+def pt_available(bath, theta):
+    out = pt_file(bath, theta)
+    return os.path.exists(out + '.done') if HPC_PTS else os.path.exists(out)
+
+
 def ensure_pt(bath, theta):
     out = pt_file(bath, theta)
+    if HPC_PTS:
+        if not os.path.exists(out + '.done'):
+            raise FileNotFoundError(f'{out}.done missing: PT build not finished')
+        return out
     if not os.path.exists(out):
         src = os.path.join(PTS, f'dnc256_{bath}_{theta}.pt')
         if not os.path.exists(src):
@@ -78,6 +90,9 @@ def cmd_spectra(a):
     jobs = []
     for bath in a.baths:
         for theta in a.thetas:
+            if a.available and not pt_available(bath, theta):
+                print(f'skip {bath} a{ALPHA} {theta}: PT not available', flush=True)
+                continue
             pt = ensure_pt(bath, theta)
             for fam in FAMILIES + ['flat']:
                 out = spectra_prefix(bath, theta) + f'_{label(fam)}.csv'
@@ -89,7 +104,7 @@ def cmd_spectra(a):
     times = []
     with ThreadPoolExecutor(a.jobs) as ex:
         for (bath, theta, fam, _, _), t in zip(jobs, ex.map(lambda j: run(j[3], j[4]), jobs)):
-            times.append((bath, theta, fam, t))
+            times.append((bath, ALPHA, theta, fam, t))
             print(f'spectra {bath} {theta} {fam}: {t:.1f} s', flush=True)
     with open(os.path.join(RES, 'runtimes_spectra.csv'), 'a') as f:
         for r in times:
@@ -114,7 +129,7 @@ def chi(s, eps):
 
 def exponent_scale(bath, fam):
     import stage0_proxy as P
-    B = P.blocks(ALPHA, P.BATHS[PROXY_BATH[bath]], N)
+    B = P.blocks(ALPHA, P.BATHS[PROXY_BATH[bath]], N)   # same units as ACE's alpha (CHANGES.md, T1)
     return float(np.linalg.norm(B[PROXY_NAME[fam]]))
 
 
@@ -144,7 +159,8 @@ def cmd_ranks(a):
     if os.path.exists(out):
         with open(out) as f:
             old = [r for r in csv.DictReader(f)
-                   if not (r['bath'] in a.baths and r['theta'] in a.thetas)]
+                   if not (r['bath'] in a.baths and r['theta'] in a.thetas
+                           and float(r['alpha']) == ALPHA)]
     with open(out, 'w', newline='') as f:
         w = csv.DictWriter(f, fieldnames=keys)
         w.writeheader()
@@ -167,27 +183,53 @@ def cmd_loop(a):
     out = os.path.join(RES, 'heldout.csv')
     jobs = []
     for bath in a.baths:
+        if a.available and not pt_available(bath, a.theta):
+            print(f'skip {bath} a{ALPHA} {a.theta}: PT not available', flush=True)
+            continue
         pt = ensure_pt(bath, a.theta)
         for fam in a.families:
             sp = read_spectra(spectra_prefix(bath, a.theta) + f'_{label(fam)}.csv')
             c = chi(sp[MID], 3e-3)
             maxks = sorted({c + 2, c + 4, c + 8, 16})
-            tmp = os.path.join(RES, f'heldout_{bath}_thr{a.theta}_{label(fam)}.csv')
-            if os.path.exists(tmp) and not a.force:
-                continue
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            cmd = [os.path.join(TOOLS, 'PTB_family_truncate'), '-read_PT', pt, '-family', fam,
-                   '-csv', tmp, '-label', f'{bath}_thr{a.theta}', '-n_heldout', str(a.n_heldout),
-                   '-eta', '0', '-eta', '0.3']
-            for m in maxks:
-                cmd += ['-maxk', str(m)]
-            jobs.append((bath, fam, cmd, tmp[:-4] + '.log', c))
+            # pilot files: heldout_<bath>_thr<theta>_<fam>.csv (alpha 0.05, all maxk in one run);
+            # grid files (--split_maxk): one run per maxk, so the maxk values run in parallel
+            groups = [[m] for m in maxks] if a.split_maxk else [maxks]
+            for ms in groups:
+                if a.split_maxk:
+                    tmp = os.path.join(RES, f'heldout_{bath}_a{ALPHA}_thr{a.theta}_{label(fam)}_m{ms[0]}.csv')
+                    lab = f'{bath}_a{ALPHA}_thr{a.theta}'
+                else:
+                    tmp = os.path.join(RES, f'heldout_{bath}_thr{a.theta}_{label(fam)}.csv')
+                    lab = f'{bath}_thr{a.theta}'
+                if os.path.exists(tmp) and not a.force:
+                    continue
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+                cmd = [os.path.join(TOOLS, 'PTB_family_truncate'), '-read_PT', pt, '-family', fam,
+                       '-csv', tmp + '.part', '-label', lab, '-n_heldout', str(a.n_heldout),
+                       '-eta', '0', '-eta', '0.3']
+                for m in ms:
+                    cmd += ['-maxk', str(m)]
+                if os.path.exists(tmp + '.part'):
+                    os.remove(tmp + '.part')     # left by a killed run: the tool appends
+                jobs.append((bath, fam, ms, cmd, tmp, c))
+
+    def work(j):
+        t = run(j[3], j[4][:-4] + '.log')
+        os.replace(j[4] + '.part', j[4])       # complete files only
+        return t
+
     with ThreadPoolExecutor(a.jobs) as ex:
-        for (bath, fam, _, _, c), t in zip(jobs, ex.map(lambda j: run(j[2], j[3]), jobs)):
-            print(f'loop {bath} {fam} (chi_op(3e-3) = {c}): {t:.1f} s', flush=True)
+        futs = [(j, ex.submit(work, j)) for j in jobs]
+        for (bath, fam, ms, _, _, c), fut in futs:
+            try:
+                t = fut.result()
+            except Exception as e:
+                print(f'loop {bath} {fam} maxk {ms}: FAILED {e}', flush=True)
+                continue
+            print(f'loop {bath} {fam} maxk {ms} (chi_op(3e-3) = {c}): {t:.1f} s', flush=True)
             with open(os.path.join(RES, 'runtimes_loop.csv'), 'a') as f:
-                f.write(f'{bath},{a.theta},{fam},{t}\n')
+                f.write(f'{bath},{ALPHA},{a.theta},{fam},{"/".join(map(str, ms))},{t}\n')
     # merge per-job files
     files = sorted(f for f in os.listdir(RES) if f.startswith('heldout_') and f.endswith('.csv'))
     with open(out, 'w') as fo:
@@ -207,5 +249,9 @@ if __name__ == '__main__':
     ap.add_argument('--n_heldout', type=int, default=200)
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--force', action='store_true')
+    ap.add_argument('--alpha', type=float, default=0.05)
+    ap.add_argument('--available', action='store_true', help='skip PTs that are not built (instead of failing)')
+    ap.add_argument('--split_maxk', action='store_true', help='loop: one tool run per maxk')
     a = ap.parse_args()
+    ALPHA = a.alpha
     {'spectra': cmd_spectra, 'ranks': cmd_ranks, 'loop': cmd_loop}[a.what](a)
