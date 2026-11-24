@@ -334,7 +334,7 @@ std::vector<Eigen::VectorXd> MemorySpectra::operational(ProcessTensorBuffer &PTB
     const ProcessTensorElement &e=PTB.get(n, ForwardPreload);
     RouteR::step_forward(L, e, ens, n);
     Eigen::MatrixXcd K=F[n]*RouteR::absorb_past(L);
-    s[n]=Eigen::BDCSVD<Eigen::MatrixXcd>(K).singularValues();
+    s[n]=BalancedTruncation::singular_values(K);
   }
   return s;
 }
@@ -347,7 +347,7 @@ std::vector<Eigen::VectorXd> MemorySpectra::flat(ProcessTensorBuffer &PTB){
   std::vector<Eigen::VectorXd> s(n_tot);
   for(int n=0; n<n_tot; n++){
     Eigen::MatrixXcd K=g.get_R(n)*L[n];
-    s[n]=Eigen::BDCSVD<Eigen::MatrixXcd>(K).singularValues();
+    s[n]=BalancedTruncation::singular_values(K);
   }
   return s;
 }

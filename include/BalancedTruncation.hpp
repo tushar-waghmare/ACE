@@ -140,6 +140,11 @@ public:
                                 const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F_pairs, int NL,
                                 const Eigen::MatrixXcd *F_objective=nullptr);
 
+  //singular values (descending) for diagnostics and spectra: JacobiSVD up to
+  //min(rows, cols) <= bdc_min_size, BDCSVD above. Eigen 3.4.0's BDCSVD can fail an
+  //index assertion on small, rank-deficient inputs (seen on Cirrus, Study A grid).
+  static constexpr int bdc_min_size=512;
+  static Eigen::VectorXd singular_values(const Eigen::MatrixXcd &M);
   //largest singular value
   static double norm2(const Eigen::MatrixXcd &M);
   //||X Y||_2 from the QR factors of X and Y^dagger (exact; m x m instead of D x D)

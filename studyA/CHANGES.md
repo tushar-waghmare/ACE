@@ -73,3 +73,9 @@ Recorded before the grid is run. Each entry: date, what, why.
   spec notes that a too-loose theta biases chi_HS low, i.e. against Outcome A.
 - 2026-11-23, closing-the-loop runs on the grid are split per bond dimension (one PTB_family_truncate run per
   (bath, family, maxk), files heldout_<bath>_a<alpha>_thr<theta>_<family>_m<maxk>.csv); numerics unchanged.
+- 2026-11-24, diagnostics SVD. One closing-the-loop run (inband0.8, coarse:20:0.3, maxk 15, alpha 0.05, theta 1e-6)
+  aborted on Cirrus with an Eigen 3.4.0 BDCSVD index assertion (DenseCoeffsBase.h:181) in a diagnostic SVD
+  (||X||, ||Y||, unprotected bound); not reproducible on the Mac (same PT, max D 68). `BalancedTruncation::
+  singular_values` now uses JacobiSVD for min(rows, cols) <= 512 and BDCSVD above, for the diagnostics and for
+  the Study A spectra (rounding-level changes only; X, Y unchanged, they already came from JacobiSVD). The
+  missing run is to be repeated with the fixed build.

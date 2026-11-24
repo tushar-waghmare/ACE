@@ -13,3 +13,5 @@ studyA/baths/*.dat
 studyA/**/*.pt
 studyA/**/*.pt_*
 studyA/**/*.log
+# Study A grid spectra: 231 MB, kept on Cirrus (/epccfs/e89/e89/tusharwaghmare/studyA/results/spectra)
+studyA/results_cirrus/spectra/

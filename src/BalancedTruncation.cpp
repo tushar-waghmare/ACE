@@ -38,12 +38,18 @@ void BalancedTruncationDiagnostics::print_csv(std::ostream &os)const{
     <<","<<paired<<","<<paired_validation<<std::endl;
 }
 
+Eigen::VectorXd BalancedTruncation::singular_values(const Eigen::MatrixXcd &M){
+  if(M.size()<1)return Eigen::VectorXd();
+  if(std::min(M.rows(), M.cols())<=bdc_min_size){
+    return Eigen::JacobiSVD<Eigen::MatrixXcd>(M).singularValues();
+  }
+  return Eigen::BDCSVD<Eigen::MatrixXcd>(M).singularValues();
+}
+
 double BalancedTruncation::norm2(const Eigen::MatrixXcd &M){
   if(M.size()<1)return 0.;
-  //diagnostics only (X, Y come from the JacobiSVD of the core); BDCSVD falls
-  //back to JacobiSVD for small matrices and is much faster for large ones
-  Eigen::BDCSVD<Eigen::MatrixXcd> svd(M);
-  return svd.singularValues()(0);
+  //diagnostics only (X, Y come from the JacobiSVD of the core)
+  return singular_values(M)(0);
 }
 
 double BalancedTruncation::operational_error(const Eigen::MatrixXcd &A, const Eigen::MatrixXcd &F,
@@ -75,8 +81,7 @@ void BalancedTruncation::set_training_diagnostics(BalancedProjector &P,
                               const Eigen::MatrixXcd *F_objective){
   P.diag.E_aug=augmented_error(A, F_pairs, P.X, P.Y, NL);
   const Eigen::MatrixXcd &F = F_objective ? *F_objective : F_pairs;
-  Eigen::BDCSVD<Eigen::MatrixXcd> svd(F*A);
-  const Eigen::VectorXd &sv=svd.singularValues();
+  const Eigen::VectorXd sv=singular_values(F*A);
   P.diag.unprotected_bound=0.;
   for(int i=P.diag.m; i<sv.size(); i++){ P.diag.unprotected_bound+=sv(i)*sv(i); }
 }
@@ -155,8 +160,7 @@ void BalancedTruncation::finish_diagnostics(BalancedProjector &ret,
   ret.diag.Pi_norm=Pi_norm(ret.X, ret.Y);
 
   //best unprotected error at the same total bond dimension m
-  Eigen::BDCSVD<Eigen::MatrixXcd> svd(F*A);
-  const Eigen::VectorXd &sv=svd.singularValues();
+  const Eigen::VectorXd sv=singular_values(F*A);
   ret.diag.unprotected_bound=0.;
   for(int i=ret.diag.m; i<sv.size(); i++){
     ret.diag.unprotected_bound+=sv(i)*sv(i);

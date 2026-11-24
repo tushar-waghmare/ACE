@@ -1,0 +1,73 @@
+## ranks, alpha 0.05, eps 3e-3, mid cut, theta 1e-6
+HS (flat)            [2, 6, 10, 14] pred {0: 2, 2: 6, 4: 10, 6: 14}
+Bernoulli p=0.002    [2, 2, 2, 2] pred {0: 2, 2: 2, 4: 2, 6: 2}
+Bernoulli p=0.005    [3, 3, 3, 3] pred {0: 2, 2: 2, 4: 2, 6: 2}
+coarse k=20          [2, 2, 2, 2] pred {0: 2, 2: 3, 4: 3, 6: 3}
+Bernoulli p=0.01     [3, 3, 3, 3] pred {0: 3, 2: 3, 4: 3, 6: 2}
+coarse k=10          [2, 3, 3, 3] pred None
+
+A1: chi_HS 2 -> 14: increase 12 (>= 6): True
+A2 Bernoulli p=0.002: chi_op [2, 2, 2, 2], increase 0, ratio at n=6 7.0: True
+A2 Bernoulli p=0.005: chi_op [3, 3, 3, 3], increase 0, ratio at n=6 4.7: True
+A2 coarse k=20: chi_op [2, 2, 2, 2], increase 0, ratio at n=6 7.0: True
+A5: A2 holds for 3 narrow families (>= 2): True
+
+A3 (oob6, bond chi_op+2, in-family held-out set)
+  Bernoulli p=0.002: bond 4 balanced 0.000101 vs eps*RMS(y) 4.47e-05: False; cert_si 0.00766 >= err: True; SVD 0.00507 (50x)
+  Bernoulli p=0.005: bond 5 balanced 0.000173 vs eps*RMS(y) 4.76e-05: False; cert_si 0.0135 >= err: True; SVD 0.00468 (27x)
+  coarse k=20: bond 4 balanced 0.000729 vs eps*RMS(y) 5.3e-05: False; cert_si 0.0111 >= err: True; SVD 0.00717 (10x)
+
+A4 controls (chi_op and exponent scale vs ohmic)
+  Bernoulli p=0.002: chi 2 -> 6 (+4), exponent scale 0.0602 -> 0.724 (x12.0)
+  Bernoulli p=0.005: chi 3 -> 9 (+6), exponent scale 0.0528 -> 0.859 (x16.3)
+  coarse k=20: chi 2 -> 11 (+9), exponent scale 0.038 -> 1.37 (x36.1)
+  Bernoulli p=0.01: chi 3 -> 12 (+9), exponent scale 0.0438 -> 1.05 (x23.9)
+  coarse k=10: chi 2 -> 13 (+11), exponent scale 0.0248 -> 1.35 (x54.4)
+A4 theta convergence: |chi(1e-6) - chi(theta)| at eps 3e-3, mid cut
+  ohmic     1e-7: max change 1 (Bernoulli p=0.005)
+  ohmic     1e-8: max change 1 (Bernoulli p=0.005)
+  ohmic     1e-9: max change 1 (Bernoulli p=0.005)
+  oob2      1e-7: max change 1 (Bernoulli p=0.005)
+  oob2      1e-8: max change 1 (Bernoulli p=0.005)
+  oob2      1e-9: max change 1 (Bernoulli p=0.005)
+  oob4      1e-7: max change 1 (Bernoulli p=0.005)
+  oob4      1e-8: no PT
+  oob4      1e-9: no PT
+  oob6      1e-7: no PT
+  oob6      1e-8: no PT
+  oob6      1e-9: no PT
+  edge5     1e-7: max change 0 (HS (flat))
+  edge5     1e-8: max change 0 (HS (flat))
+  edge5     1e-9: max change 0 (HS (flat))
+  edge3     1e-7: max change 0 (HS (flat))
+  edge3     1e-8: max change 0 (HS (flat))
+  edge3     1e-9: max change 0 (HS (flat))
+  inband0.8 1e-7: max change 2 (Bernoulli p=0.01)
+  inband0.8 1e-8: max change 3 (coarse k=10)
+  inband0.8 1e-9: max change 2 (Bernoulli p=0.01)
+
+supplementary: oob6 in-family held-out error vs bond (balanced eta 0 / eta 0.3 / SVD)
+  Bernoulli p=0.002
+    bond  4: 1.01e-04 / 4.42e-03 / 5.07e-03 (thr 4.47e-05, cert_si 7.66e-03, cert_p 1.18e-03, trace balanced 6.9e-04 SVD 2.2e-02)
+    bond  6: 6.13e-05 / 8.92e-04 / 4.87e-03 (thr 4.47e-05, cert_si 4.37e-03, cert_p 4.30e-04, trace balanced 6.8e-04 SVD 2.5e-02)
+    bond 10: 3.10e-05 / 3.90e-04 / 5.52e-03 (thr 4.47e-05, cert_si 2.46e-03, cert_p 1.74e-04, trace balanced 6.8e-04 SVD 3.0e-02)
+    bond 16: 2.72e-05 / 4.79e-04 / 2.23e-03 (thr 4.47e-05, cert_si 1.32e-03, cert_p 9.86e-05, trace balanced 6.8e-04 SVD 4.1e-02)
+  Bernoulli p=0.005
+    bond  5: 1.73e-04 / 5.59e-03 / 4.68e-03 (thr 4.76e-05, cert_si 1.35e-02, cert_p 1.76e-03, trace balanced 6.9e-04 SVD 2.3e-02)
+    bond  7: 9.39e-05 / 4.79e-03 / 4.91e-03 (thr 4.76e-05, cert_si 8.87e-03, cert_p 1.17e-03, trace balanced 6.9e-04 SVD 2.6e-02)
+    bond 11: 7.87e-05 / 4.65e-04 / 6.24e-03 (thr 4.76e-05, cert_si 5.47e-03, cert_p 5.69e-04, trace balanced 6.9e-04 SVD 3.1e-02)
+    bond 16: 6.35e-05 / 6.28e-04 / 1.75e-03 (thr 4.76e-05, cert_si 3.16e-03, cert_p 3.03e-04, trace balanced 6.9e-04 SVD 4.1e-02)
+  coarse k=20
+    bond  4: 7.29e-04 / 6.41e-03 / 7.17e-03 (thr 5.30e-05, cert_si 1.11e-02, cert_p 3.14e-03, trace balanced 7.0e-04 SVD 2.2e-02)
+    bond  6: 2.29e-04 / 6.19e-03 / 6.94e-03 (thr 5.30e-05, cert_si 3.01e-03, cert_p 5.63e-04, trace balanced 7.0e-04 SVD 2.5e-02)
+    bond 10: 1.22e-05 / 4.88e-03 / 7.39e-03 (thr 5.30e-05, cert_si 1.49e-04, cert_p 3.11e-05, trace balanced 6.8e-04 SVD 3.0e-02)
+    bond 16: 3.99e-07 / 3.93e-04 / 9.15e-04 (thr 5.30e-05, cert_si 6.93e-06, cert_p 1.97e-06, trace balanced 6.8e-04 SVD 4.1e-02)
+  Bernoulli p=0.01
+    bond  5: 3.77e-04 / 6.43e-03 / 5.27e-03 (thr 5.02e-05, cert_si 2.63e-02, cert_p 3.44e-03, trace balanced 7.0e-04 SVD 2.3e-02)
+    bond  7: 1.98e-04 / 5.72e-03 / 5.45e-03 (thr 5.02e-05, cert_si 1.75e-02, cert_p 2.37e-03, trace balanced 7.0e-04 SVD 2.6e-02)
+    bond 11: 1.38e-04 / 6.05e-04 / 6.72e-03 (thr 5.02e-05, cert_si 1.07e-02, cert_p 1.15e-03, trace balanced 7.0e-04 SVD 3.1e-02)
+    bond 16: 8.66e-05 / 7.53e-04 / 1.40e-03 (thr 5.02e-05, cert_si 6.04e-03, cert_p 5.62e-04, trace balanced 7.0e-04 SVD 4.1e-02)
+
+paired certificate below the RMS error in 0 of 440 balanced rows
+
+figures written to /Users/user/Documents/Projects/ACE/studyA/figs
